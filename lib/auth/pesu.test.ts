@@ -12,6 +12,14 @@ import { authenticateWithPesu } from "./pesu";
  * invisible to any test one can safely write by hand.
  */
 
+/**
+ * A deliberately impossible SRN. PESU issues three-digit serials, so a
+ * four-digit one starting at 9001 cannot belong to a real student — which
+ * matters in a public repository, where a realistic-looking fixture is
+ * indistinguishable from someone's actual identifier.
+ */
+const SRN = "PES2UG24CS9001";
+
 const ORIGINAL_FETCH = globalThis.fetch;
 
 function mockResponse(body: unknown, status = 200) {
@@ -34,15 +42,15 @@ describe("authenticateWithPesu", () => {
       status: true,
       message: "Login successful.",
       timestamp: "2026-08-09T13:00:00+05:30",
-      profile: { srn: "PES2UG24CS9001" },
+      profile: { srn: SRN },
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.profile.srn).toBe("PES2UG24CS9001");
+      expect(result.profile.srn).toBe(SRN);
       // With no name upstream, the SRN stands in rather than the login failing.
-      expect(result.profile.name).toBe("PES2UG24CS9001");
+      expect(result.profile.name).toBe(SRN);
     }
   });
 
@@ -53,7 +61,7 @@ describe("authenticateWithPesu", () => {
       timestamp: "2026-08-09T13:00:00+05:30",
       profile: {
         name: "A Student",
-        srn: "PES2UG24CS9001",
+        srn: SRN,
         prn: "PES2202409001",
         program: "Bachelor of Technology",
         branch: "Computer Science and Engineering",
@@ -66,7 +74,7 @@ describe("authenticateWithPesu", () => {
       },
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.profile.name).toBe("A Student");
@@ -82,9 +90,9 @@ describe("authenticateWithPesu", () => {
       profile: { name: "A Student" },
     }) as never;
 
-    const result = await authenticateWithPesu("pes2ug24cs9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN.toLowerCase(), "irrelevant");
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.profile.srn).toBe("PES2UG24CS9001");
+    if (result.ok) expect(result.profile.srn).toBe(SRN);
   });
 
   it("refuses to invent an SRN from an e-mail login", async () => {
@@ -109,7 +117,7 @@ describe("authenticateWithPesu", () => {
       401,
     ) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "wrong");
+    const result = await authenticateWithPesu(SRN, "wrong");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("INVALID_CREDENTIALS");
   });
@@ -117,7 +125,7 @@ describe("authenticateWithPesu", () => {
   it("blames itself, not the student, when the service rejects our request", async () => {
     globalThis.fetch = mockResponse({ detail: "validation error" }, 422) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("BAD_REQUEST");
@@ -132,7 +140,7 @@ describe("authenticateWithPesu", () => {
       timestamp: "x",
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("SERVICE_UNAVAILABLE");
@@ -150,13 +158,13 @@ describe("authenticateWithPesu", () => {
           status: true,
           message: "Login successful.",
           timestamp: "x",
-          profile: { srn: "PES2UG24CS9001", name: "A Student" },
+          profile: { srn: SRN, name: "A Student" },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(call).toBe(2);
     expect(result.ok).toBe(true);
   });
@@ -171,13 +179,13 @@ describe("authenticateWithPesu", () => {
           status: true,
           message: "Login successful.",
           timestamp: "x",
-          profile: { srn: "PES2UG24CS9001", name: "A Student" },
+          profile: { srn: SRN, name: "A Student" },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(result.ok).toBe(true);
     // The expensive second scrape is what tips a successful login past the
     // gateway timeout, so the last attempt asks for the profile alone.
@@ -191,7 +199,7 @@ describe("authenticateWithPesu", () => {
       return new Response("bad gateway", { status: 502 });
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "irrelevant");
+    const result = await authenticateWithPesu(SRN, "irrelevant");
     expect(call).toBe(3);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -211,7 +219,7 @@ describe("authenticateWithPesu", () => {
       });
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "wrong");
+    const result = await authenticateWithPesu(SRN, "wrong");
     // Retrying a rejected credential would burn the account's rate limit for
     // no possible gain.
     expect(call).toBe(1);
@@ -223,7 +231,7 @@ describe("authenticateWithPesu", () => {
       throw new Error("connect ECONNREFUSED");
     }) as never;
 
-    const result = await authenticateWithPesu("PES2UG24CS9001", "a-secret-value");
+    const result = await authenticateWithPesu(SRN, "a-secret-value");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(JSON.stringify(result)).not.toContain("a-secret-value");
   });

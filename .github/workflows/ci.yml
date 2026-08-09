@@ -57,12 +57,9 @@ jobs:
           npx prisma migrate deploy
           npm run seed
 
-      # The demo harnesses are this project's integration suite. They drive the
-      # real submission path and assert on tier derivation, quota enforcement,
+      # The demo harness is this project's integration suite. It drives the real
+      # submission path and asserts on tier derivation, quota enforcement,
       # company-alias resolution, outlier flagging, corroboration and the
-      # privacy gate. Both exit non-zero if any check fails.
-      - name: Correctness fixture (batch 9999)
-        run: npm run demo:9999 -- --reset
-
-      - name: Populated cohort (batch 9998)
+      # privacy gate. It exits non-zero if any check fails.
+      - name: Demo cohort (batch 9998)
         run: npm run demo:9998 -- --reset

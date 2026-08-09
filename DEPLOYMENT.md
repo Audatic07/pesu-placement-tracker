@@ -100,10 +100,10 @@ Two things to get right:
 
 ## Demo data on a public deployment
 
-`npm run demo:9998` and `npm run demo:9999` create batches 9998 and 9999. They
-are safe to leave on a public instance — the students are synthetic, the company
-names are invented, and neither batch is ever mixed into a real batch's
-statistics. They give a visitor something to look at before the season starts.
+`npm run demo:9998` creates batch 9998. It is safe to leave on a public
+instance — the students are synthetic, the company names are invented, and the
+batch is never mixed into a real batch's statistics. It gives a visitor
+something to look at before the season starts.
 
 `npm run demo:login` refuses to run when `NODE_ENV=production`.
 

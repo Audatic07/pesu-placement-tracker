@@ -29,12 +29,11 @@ npm run build
 If your change touches submission, analytics or moderation, also run:
 
 ```bash
-npm run demo:9999 -- --reset   # the correctness fixture
-npm run demo:9998 -- --reset   # the populated cohort
+npm run demo:9998 -- --reset
 ```
 
-Both print a pass/fail line per rule and exit non-zero if any check fails. They
-are the closest thing this project has to an integration suite, and they catch
+It prints a pass/fail line per rule and exits non-zero if any check fails. It is
+the closest thing this project has to an integration suite, and it catches
 things unit tests structurally cannot — a quota that stops biting at volume, an
 aggregate that starts counting imported drives, a company that quietly splits
 into two rows because someone typed it in lower case.

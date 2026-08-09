@@ -41,7 +41,7 @@ async function main() {
   const student = requested
     ? await prisma.student.findUnique({ where: { srn: requested } })
     : await prisma.student.findFirst({
-        where: { graduationYear: { in: [9998, 9999] } },
+        where: { graduationYear: 9998 },
         orderBy: { srn: "asc" },
       });
 

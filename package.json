@@ -26,8 +26,7 @@
     "postinstall": "prisma generate",
     "seed": "tsx prisma/seed.ts",
     "import:excel": "tsx scripts/import/index.ts",
-    "demo:9999": "tsx --conditions=react-server scripts/demo/index.ts",
-    "demo:9998": "tsx --conditions=react-server scripts/demo/dummy/index.ts",
+    "demo:9998": "tsx --conditions=react-server scripts/demo/index.ts",
     "demo:login": "tsx scripts/demo/login.ts"
   },
   "dependencies": {

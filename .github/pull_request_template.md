@@ -18,9 +18,8 @@ it has broken here at least once.
 - [ ] `npm test`
 - [ ] `npm run build`
 - [ ] If this touches submission, analytics or moderation:
-      `npm run demo:9999 -- --reset` and `npm run demo:9998 -- --reset` both
-      pass. They are the integration suite and they catch things unit tests
-      structurally cannot.
+      `npm run demo:9998 -- --reset` passes. It is the integration suite and it
+      catches things unit tests structurally cannot.
 
 ## Privacy
 

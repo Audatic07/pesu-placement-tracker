@@ -81,37 +81,41 @@ without a PESU account. Paste it into the browser console at
 
 ## Demo data
 
-Two synthetic batches exist, for two different jobs. Neither is ever mixed into
-a real batch's statistics — they are batches of their own, numbered where no
-real cohort will reach.
+`npm run demo:9998` builds batch 9998: 200 submissions from 170 students,
+generated from a fixed seed so the batch is identical on every machine. Add
+`-- --reset` to tear it down and rebuild. It is a batch of its own, numbered
+where no real cohort will reach, and is never mixed into a real batch's figures.
 
-| Command | Batch | What it is |
-|---|---|---|
-| `npm run demo:9999` | 9999 | A correctness fixture. ~35 rows, each hand-written to prove one rule, plus submissions that must be rejected. |
-| `npm run demo:9998` | 9998 | A populated cohort. 200 submissions from 170 students, generated from a fixed seed. |
+It drives the **real** submission path rather than inserting rows. Each
+submission is encoded as `FormData` exactly the way the browser posts it, then
+run through `parseOfferForm` → the zod schema → `createOffer`, which derives the
+tier from the package, re-checks the quota against the database, computes the
+cash and take-home figures, flags outliers, recomputes corroboration across
+everyone who reported the same drive, and writes an audit entry. Reports go
+through `fileReport`. A fixture that bypasses the write path cannot tell you the
+write path works.
 
-Add `-- --reset` to either to tear the batch down and rebuild it.
+The run finishes with ~28 assertions covering tier derivation, the quota rules
+(including the per-tier cap and filing against another batch), alias
+resolution, outlier flagging, corroboration and the privacy gate. It exits
+non-zero if any of them fail, which is what makes it usable in CI.
 
-Both drive the **real** submission path rather than inserting rows. The 9998
-harness encodes each submission as `FormData` exactly the way the browser posts
-it, then runs it through `parseOfferForm` → the zod schema → `createOffer`,
-which derives the tier from the package, re-checks the quota against the
-database, computes the cash and take-home figures, flags outliers, recomputes
-corroboration across everyone who reported the same drive, and writes an audit
-entry. Reports go through `fileReport`. A fixture that bypasses the write path
-cannot tell you the write path works.
-
-Company names in the demo batches are invented. Attaching fabricated packages to
+Company names in the demo batch are invented. Attaching fabricated packages to
 real employers on a public deployment would be a lie about identifiable
 companies.
 
-## Importing the historical spreadsheets
+## Importing the historical spreadsheet
 
-`npm run import:excel` reads the two source workbooks named in `.env`. They
-contain real student placement data and are **not** in this repository, and
-neither are screenshots of them. The importer is a one-off cold start: it seeds
-the company list and gives each recruiter a previous-years section on its
-profile. No statistic about a batch is ever computed from it.
+`npm run import:excel` reads the 2026 workbook named in `.env`. It contains real
+student placement data and is **not** in this repository, and neither are
+screenshots of it. The importer is a one-off cold start: it seeds the company
+list and gives each recruiter a previous-years section on its profile.
+
+**Only the finished season is imported.** 2026 is over and its spreadsheet is
+the archive, so it is shown as history — labelled, and never summed into a live
+batch's figures. 2027 onwards start empty and fill up from student submissions
+alone, because a half-finished sheet would seed a live batch with headcounts a
+company published rather than outcomes a student confirmed.
 
 ## Commands
 
@@ -126,7 +130,7 @@ profile. No statistic about a batch is ever computed from it.
 | `npm run db:deploy` | Apply migrations in production |
 | `npm run db:studio` | Prisma Studio |
 | `npm run seed` | Configuration rows (idempotent) |
-| `npm run demo:9998` / `demo:9999` | Synthetic batches |
+| `npm run demo:9998` | Synthetic demo batch |
 | `npm run demo:login` | Session cookie for a demo student (development only) |
 | `npm run import:excel` | One-off historical import |
 

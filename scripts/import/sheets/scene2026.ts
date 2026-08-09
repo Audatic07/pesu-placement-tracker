@@ -249,28 +249,61 @@ const TABS: TabSpec[] = [
 const FOOTER_LABEL =
   /^(total visited|grand total|highest|average|median|wt\.|weighted|total placed)/i;
 
+/**
+ * The text a cell displays, whatever ExcelJS wrapped it in.
+ *
+ * The shapes matter more than they look. A plain string is the easy case; a
+ * styled cell arrives as rich text; a formula arrives with its cached result;
+ * and a HYPERLINK arrives as { text, hyperlink } — where the text is ITSELF
+ * rich text when the link was styled. That last combination is why SUKI.AI
+ * India Pvt Ltd was imported as a company called "[object Object]": the handler
+ * asked whether the text was a string, it was an object, and the generic
+ * fallback stringified the wrapper into a plausible-looking name.
+ */
 function cellText(cell: Cell): string | null {
   const value = cell.value;
   if (value === null || value === undefined) return null;
 
-  if (typeof value === "object" && value !== null) {
-    // ExcelJS returns rich text and hyperlink objects for styled cells.
-    if ("richText" in value && Array.isArray(value.richText)) {
-      const text = value.richText.map((part) => part.text).join("");
-      return text.trim() || null;
+  /** Joins the runs of a rich-text object, or null if this is not one. */
+  const fromRichText = (candidate: unknown): string | null => {
+    if (candidate === null || typeof candidate !== 'object') return null;
+    if (!('richText' in candidate)) return null;
+    const runs = (candidate as { richText?: unknown }).richText;
+    if (!Array.isArray(runs)) return null;
+    const text = runs.map((run) => (run as { text?: string }).text ?? '').join('');
+    return text.trim() || null;
+  };
+
+  if (typeof value === 'object' && !(value instanceof Date)) {
+    const direct = fromRichText(value);
+    if (direct !== null) return direct;
+
+    if ('text' in value) {
+      const inner = (value as { text?: unknown }).text;
+      if (typeof inner === 'string') return inner.trim() || null;
+      // A hyperlink whose display text carries formatting.
+      const nested = fromRichText(inner);
+      if (nested !== null) return nested;
     }
-    if ("text" in value && typeof value.text === "string") {
-      return value.text.trim() || null;
-    }
-    if ("result" in value) {
+
+    if ('result' in value) {
       const result = (value as { result?: unknown }).result;
       return result === null || result === undefined ? null : String(result).trim() || null;
     }
-    if (value instanceof Date) return value.toISOString();
+
+    // An Excel error cell — #REF!, #N/A, #VALUE!. It carries no text.
+    if ('error' in value) return null;
   }
 
-  const text = String(value).replace(/ /g, " ").trim();
-  return text || null;
+  if (value instanceof Date) return value.toISOString();
+
+  const text = String(value).replace(/ /g, ' ').trim();
+
+  // A shape nobody anticipated. Writing "[object Object]" into the database
+  // would let the import report success while inventing a value; null leaves a
+  // gap the review log records and a human can act on.
+  if (!text || text === '[object Object]') return null;
+  return text;
 }
 
 function cellNumber(cell: Cell): number | null {
@@ -443,7 +476,27 @@ function readTab(
     const startsBlock = isBlockStart(companyCell) && companyText !== null;
 
     if (startsBlock || current === null) {
-      if (!companyText) continue;
+      if (!companyText) {
+        // The row carries a role or a note — line 449 already skipped the truly
+        // blank ones — but nothing readable in the company cell, most often an
+        // Excel error value. Which company it belonged to is not recoverable,
+        // and this importer refuses to guess. Logged rather than dropped
+        // silently, because a row that vanishes without a trace is exactly the
+        // failure the review file exists to prevent.
+        review.add({
+          severity: "DROPPED",
+          sheet: spec.sheet,
+          row,
+          company: null,
+          field: "Company",
+          rawValue: JSON.stringify(companyCell.value)?.slice(0, 200) ?? "",
+          outcome: "Row skipped: there is no company to attach it to.",
+          reason: `The company cell held nothing readable${
+            roleText ? `; the role cell said "${roleText}"` : ""
+          }.`,
+        });
+        continue;
+      }
 
       const { name, inlineNote } = cleanCompanyName(companyText);
       const gpaCell =

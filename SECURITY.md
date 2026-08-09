@@ -45,8 +45,8 @@ Ranked by how badly it goes wrong, not by how interesting the bug is:
 - The rate limiter failing open when the database is unreachable. That is a
   deliberate trade documented in `lib/rate-limit.ts`: it is a guard rail, not
   the security boundary.
-- The demo batches (9998, 9999) containing implausible data. They are synthetic
-  by design and contain no real person's record.
+- The demo batch (9998) containing implausible data. It is synthetic by design
+  and contains no real person's record.
 - `npm run demo:login` minting a session. It requires `SESSION_SECRET` and
   direct database access — anyone holding both already controls the deployment —
   and it refuses to run in production.

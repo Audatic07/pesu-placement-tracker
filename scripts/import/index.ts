@@ -5,14 +5,13 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../generated/prisma/client.js";
 import { ReviewLog } from "./lib/review";
 import { readScene2026 } from "./sheets/scene2026";
-import { readPlacements2027 } from "./sheets/placements2027";
 import { loadWorkbook } from "./load";
 import { verifyAgainstFooters } from "./verify";
 import { recomputeDerivedCompensation } from "../../lib/comp/recompute";
 import type { ImportedWorkbook } from "./sheets/types";
 
 /**
- * Historical import.
+ * Historical import — the 2026 workbook, and only that one.
  *
  *   npm run import:excel -- --dry-run     parse and report, touch nothing
  *   npm run import:excel                  parse, report, then write
@@ -20,6 +19,18 @@ import type { ImportedWorkbook } from "./sheets/types";
  * Always writes scripts/import/out/import-review.csv. Read it before trusting
  * the result: it lists every judgement the importer made and every fragment it
  * refused to guess at.
+ *
+ * 2026 is the archive: a finished season, recorded by hand in a spreadsheet
+ * that nobody will update again. Importing it gives every recruiter a
+ * previous-years section on its profile and seeds the company list, so the
+ * first student to file against 2027 is not typing into an empty database.
+ *
+ * 2027 is deliberately NOT imported, even though a partial sheet for it exists.
+ * That season is still being played, and a half-finished spreadsheet would seed
+ * the batch with company-published headcounts that students would then have to
+ * argue with. A batch nobody has reported on should say so plainly rather than
+ * show numbers no student confirmed. The parser for that sheet is in git
+ * history if a future maintainer ever wants it back.
  */
 
 const REVIEW_PATH = resolve("scripts/import/out/import-review.csv");
@@ -69,20 +80,13 @@ async function main() {
   const review = new ReviewLog();
 
   const path2026 = process.env.IMPORT_XLSX_2026 ?? "./Placement Scene '26.xlsx";
-  const path2027 = process.env.IMPORT_XLSX_2027 ?? "./Placements 27 .xlsx";
 
   console.log(dryRun ? "Parsing (dry run — nothing will be written)…" : "Importing…");
 
-  const [wb2026, wb2027] = await Promise.all([
-    openWorkbook(resolve(path2026)),
-    openWorkbook(resolve(path2027)),
-  ]);
-
+  const wb2026 = await openWorkbook(resolve(path2026));
   const parsed2026 = readScene2026(wb2026, review);
-  const parsed2027 = readPlacements2027(wb2027, review);
 
   summarise(parsed2026);
-  summarise(parsed2027);
 
   console.log("\n  review log");
   const bySeverity = review.countBySeverity();
@@ -108,13 +112,11 @@ async function main() {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   try {
     console.log("\nWriting to the database…");
-    for (const parsed of [parsed2026, parsed2027]) {
-      const result = await loadWorkbook(prisma, parsed, review);
-      console.log(
-        `  batch ${parsed.batchYear}: ${result.companies} companies, ` +
-          `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds`,
-      );
-    }
+    const result = await loadWorkbook(prisma, parsed2026, review);
+    console.log(
+      `  batch ${parsed2026.batchYear}: ${result.companies} companies, ` +
+        `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds`,
+    );
 
     await review.writeCsv(REVIEW_PATH);
     console.log(`  review log rewritten with load-time entries (${review.size} total)`);

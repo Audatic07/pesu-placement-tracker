@@ -40,7 +40,6 @@ body:
       options:
         - A real batch
         - The demo batch 9998
-        - The fixture batch 9999
         - Not batch-specific
     validations:
       required: true

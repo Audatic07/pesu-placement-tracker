@@ -472,6 +472,224 @@ export async function getCgpaVersusPackage(
   );
 }
 
+// ---------------------------------------------------------------------------
+// The archive
+// ---------------------------------------------------------------------------
+
+export type ArchiveTierRow = {
+  tierKey: string;
+  label: string;
+  drives: number;
+  studentsPlaced: number;
+  medianCtcLpa: number | null;
+  highestCtcLpa: number | null;
+};
+
+export type ArchiveRecruiterRow = {
+  companyName: string;
+  companySlug: string;
+  studentsPlaced: number;
+  highestCtcLpa: number | null;
+  visits: number;
+};
+
+export type BatchArchive = {
+  batchYear: number;
+  drives: number;
+  companies: number;
+  /** Headcounts the spreadsheet published. Not a count of people who filed. */
+  studentsPlaced: number;
+  /** Drives whose headcount was never recorded, so the total above understates. */
+  drivesWithoutHeadcount: number;
+  hiredNobody: number;
+  ditched: number;
+  ctc: PackageStats;
+  stipendPerMonthInr: PackageStats;
+  byTier: ArchiveTierRow[];
+  byCycle: Array<{ cycle: string; drives: number; studentsPlaced: number }>;
+  topRecruiters: ArchiveRecruiterRow[];
+};
+
+/**
+ * The imported spreadsheet layer, aggregated for a whole batch.
+ *
+ * This is a DIFFERENT KIND OF NUMBER from everything above it, and the
+ * separation is the point. A batch statistic elsewhere counts one row per
+ * person who filed. These rows count what a company published: the 2026 sheet
+ * records that a recruiter placed 88 students, but not who they were, and at a
+ * package it advertised rather than one anyone confirmed receiving.
+ *
+ * Averaging the two together would answer "what did students get" with "what
+ * did companies claim", so nothing here is ever summed into a live figure — it
+ * is returned separately, and the pages label it as imported wherever it lands.
+ *
+ * No privacy gate: there is no individual in here to protect. A headcount of 88
+ * is not 88 records, and the packages are advertised figures, not anyone's
+ * offer. The gate exists for statistics computed over people, and none of these
+ * are.
+ */
+export async function getBatchArchive(batchYear: number): Promise<BatchArchive | null> {
+  const batch = await prisma.batch.findUnique({
+    where: { year: batchYear },
+    include: { tierConfigs: { orderBy: { rank: "asc" } } },
+  });
+  if (!batch) return null;
+
+  const drives = await prisma.drive.findMany({
+    where: { batchId: batch.id },
+    select: {
+      id: true,
+      cycle: true,
+      status: true,
+      company: { select: { id: true, name: true, slug: true } },
+      roles: {
+        select: {
+          tierKey: true,
+          placedInternship: true,
+          placedFte: true,
+          placedBoth: true,
+          compensation: {
+            select: { id: true, ctcLpa: true, stipendPerMonthInr: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (drives.length === 0) return null;
+
+  /**
+   * A merged compensation cell in the source means several roles genuinely
+   * SHARE one advertised package. Counting it once per role would let a company
+   * that listed the same figure against three titles weigh three times as much
+   * as one that listed it once.
+   */
+  const packages = new Map<string, { ctcLpa: number | null; stipendInr: number | null }>();
+  for (const drive of drives) {
+    for (const role of drive.roles) {
+      if (!role.compensation) continue;
+      packages.set(role.compensation.id, {
+        ctcLpa: role.compensation.ctcLpa === null ? null : Number(role.compensation.ctcLpa),
+        stipendInr:
+          role.compensation.stipendPerMonthInr === null
+            ? null
+            : Number(role.compensation.stipendPerMonthInr),
+      });
+    }
+  }
+
+  /** null placements mean "not recorded", which is not the same as zero. */
+  const headcountOf = (roles: (typeof drives)[number]["roles"]): number | null => {
+    const stated = roles.flatMap((role) =>
+      [role.placedInternship, role.placedFte, role.placedBoth].filter(
+        (value): value is number => value !== null,
+      ),
+    );
+    return stated.length === 0 ? null : stated.reduce((sum, value) => sum + value, 0);
+  };
+
+  const asStats = (values: number[]): PackageStats => ({
+    count: values.length,
+    highest: values.length ? Math.max(...values) : null,
+    average: mean(values),
+    median: median(values),
+    p25: percentile(values, 0.25),
+    p75: percentile(values, 0.75),
+    p90: percentile(values, 0.9),
+    standardDeviation: standardDeviation(values),
+  });
+
+  const packageValues = [...packages.values()];
+
+  // --- per tier -------------------------------------------------------------
+  const byTier: ArchiveTierRow[] = batch.tierConfigs.map((tier) => {
+    const seen = new Set<string>();
+    let studentsPlaced = 0;
+    let driveCount = 0;
+    const values: number[] = [];
+
+    for (const drive of drives) {
+      const inTier = drive.roles.filter((role) => role.tierKey === tier.key);
+      if (inTier.length === 0) continue;
+      driveCount += 1;
+      studentsPlaced += headcountOf(inTier) ?? 0;
+      for (const role of inTier) {
+        const id = role.compensation?.id;
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const ctc = packages.get(id)?.ctcLpa;
+        if (ctc !== null && ctc !== undefined) values.push(ctc);
+      }
+    }
+
+    return {
+      tierKey: tier.key,
+      label: tier.label,
+      drives: driveCount,
+      studentsPlaced,
+      medianCtcLpa: median(values),
+      highestCtcLpa: values.length ? Math.max(...values) : null,
+    };
+  });
+
+  // --- per cycle ------------------------------------------------------------
+  const cycles = new Map<string, { drives: number; studentsPlaced: number }>();
+  for (const drive of drives) {
+    const bucket = cycles.get(drive.cycle) ?? { drives: 0, studentsPlaced: 0 };
+    bucket.drives += 1;
+    bucket.studentsPlaced += headcountOf(drive.roles) ?? 0;
+    cycles.set(drive.cycle, bucket);
+  }
+
+  // --- per company ----------------------------------------------------------
+  const recruiters = new Map<string, ArchiveRecruiterRow>();
+  for (const drive of drives) {
+    const row = recruiters.get(drive.company.id) ?? {
+      companyName: drive.company.name,
+      companySlug: drive.company.slug,
+      studentsPlaced: 0,
+      highestCtcLpa: null,
+      visits: 0,
+    };
+    row.visits += 1;
+    row.studentsPlaced += headcountOf(drive.roles) ?? 0;
+    for (const role of drive.roles) {
+      const ctc = role.compensation ? packages.get(role.compensation.id)?.ctcLpa : null;
+      if (ctc !== null && ctc !== undefined && (row.highestCtcLpa === null || ctc > row.highestCtcLpa)) {
+        row.highestCtcLpa = ctc;
+      }
+    }
+    recruiters.set(drive.company.id, row);
+  }
+
+  return {
+    batchYear,
+    drives: drives.length,
+    companies: new Set(drives.map((drive) => drive.company.id)).size,
+    studentsPlaced: drives.reduce((sum, drive) => sum + (headcountOf(drive.roles) ?? 0), 0),
+    drivesWithoutHeadcount: drives.filter((drive) => headcountOf(drive.roles) === null).length,
+    hiredNobody: drives.filter((drive) => drive.status === "NO_HIRES").length,
+    ditched: drives.filter((drive) => drive.status === "DITCHED").length,
+    ctc: asStats(
+      packageValues
+        .map((value) => value.ctcLpa)
+        .filter((value): value is number => value !== null),
+    ),
+    stipendPerMonthInr: asStats(
+      packageValues
+        .map((value) => value.stipendInr)
+        .filter((value): value is number => value !== null),
+    ),
+    byTier,
+    byCycle: [...cycles.entries()]
+      .map(([cycle, value]) => ({ cycle, ...value }))
+      .sort((a, b) => b.drives - a.drives),
+    topRecruiters: [...recruiters.values()].sort(
+      (a, b) => b.studentsPlaced - a.studentsPlaced || (b.highestCtcLpa ?? 0) - (a.highestCtcLpa ?? 0),
+    ),
+  };
+}
+
 export type SeasonProgressPoint = { dayOffset: number; cumulativeOffers: number };
 
 export async function getSeasonProgress(
