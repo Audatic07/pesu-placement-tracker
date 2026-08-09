@@ -5,7 +5,7 @@
   "license": "MIT",
   "description": "Unified placement tracking for PES University — PESU-authenticated, batch-scoped, built to outlive its maintainers.",
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "next dev",
