@@ -1,0 +1,63 @@
+{
+  "name": "pesu-placement-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Unified placement tracking for PES University — PESU-authenticated, batch-scoped, built to outlive its maintainers.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "prisma migrate dev && prisma generate",
+    "db:deploy": "prisma migrate deploy && prisma generate",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate",
+    "db:reset": "prisma migrate reset --force && prisma generate",
+    "postinstall": "prisma generate",
+    "seed": "tsx prisma/seed.ts",
+    "import:excel": "tsx scripts/import/index.ts",
+    "demo:9999": "tsx --conditions=react-server scripts/demo/index.ts",
+    "demo:9998": "tsx --conditions=react-server scripts/demo/dummy/index.ts",
+    "demo:login": "tsx scripts/demo/login.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "7.9.1",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "date-fns": "4.4.0",
+    "dotenv": "^17.4.2",
+    "jose": "6.2.8",
+    "lucide-react": "1.30.0",
+    "next": "16.3.0",
+    "pg": "^8.22.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "recharts": "3.10.1",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "3.6.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.20.1",
+    "@types/pg": "^8.21.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "exceljs": "4.4.0",
+    "prisma": "7.9.1",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

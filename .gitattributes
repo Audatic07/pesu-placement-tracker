@@ -1,0 +1,11 @@
+# Normalise line endings in the repository, whatever the contributor's OS does
+# locally. Without this a Windows checkout commits CRLF and every subsequent
+# diff from a Linux machine touches every line of the file.
+* text=auto eol=lf
+
+# Generated and binary
+package-lock.json -diff linguist-generated
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary

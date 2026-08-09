@@ -1,0 +1,212 @@
+@import "tailwindcss";
+
+/*
+  Token system.
+
+  The craft bar is Linear: dense, fast, restrained. Colour carries meaning and
+  nothing else — the accent marks what is active, status hues mark state, and
+  the chart ramp is validated separately. Everything else is a neutral step.
+
+  Dark is the primary rendition (students use this at 1am in a hostel room as
+  much as between classes) but light is fully authored, not a flip.
+*/
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo,
+    Consolas, monospace;
+
+  --radius-control: 6px;
+  --radius-panel: 8px;
+}
+
+:root {
+  color-scheme: light;
+
+  /* Planes, lightest to most raised. */
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;
+  --panel: #ffffff;
+  --panel-hover: #f5f5f5;
+  --overlay: #ffffff;
+
+  /* Hairlines. `line` is the default; `line-strong` is for a real separation. */
+  --line: rgba(9, 9, 11, 0.09);
+  --line-strong: rgba(9, 9, 11, 0.16);
+
+  --text: #101113;
+  --text-secondary: #5a5f68;
+  /* Tertiary carries real text — column headers, stat labels, hints — so it has
+     to clear 4.5:1, not just look recessive. An earlier, prettier value sat at
+     3.2:1 here and 3.8:1 in dark. */
+  --text-tertiary: #6b7280;
+
+  --accent: #4b5ce0;
+  --accent-hover: #3f4fce;
+  /* A filled control needs a darker step than the accent used for text and
+     icons: one bright enough to read ON the background cannot also carry white
+     text at 4.5:1. Two steps, one job each. */
+  --accent-solid: #4b5ce0;
+  --accent-fg: #ffffff;
+  --accent-subtle: rgba(75, 92, 224, 0.1);
+  --focus-ring: rgba(75, 92, 224, 0.5);
+
+  --good: #0a8f30;
+  --warning: #a8730b;
+  --critical: #c8362f;
+  --neutral-dot: #8b909a;
+
+  --shadow-panel: 0 1px 2px rgba(9, 9, 11, 0.06), 0 4px 12px rgba(9, 9, 11, 0.05);
+  --shadow-overlay: 0 4px 12px rgba(9, 9, 11, 0.08), 0 16px 48px rgba(9, 9, 11, 0.14);
+
+  /* Chart ramp — validated against these surfaces with the dataviz validator.
+     Do not hand-pick replacements; re-run the validator. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-ordinal-1: #184f95;
+  --viz-ordinal-2: #2a78d6;
+  --viz-ordinal-3: #86b6ef;
+  --viz-axis: #d4d4d8;
+  --viz-track: rgba(9, 9, 11, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #0a0b0d;
+    --bg-subtle: #0d0e11;
+    --panel: #131519;
+    --panel-hover: #1a1d22;
+    --overlay: #16191e;
+
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.14);
+
+    --text: #f2f3f5;
+    --text-secondary: #9ba1ab;
+    --text-tertiary: #8a919c;
+
+    --accent: #6272ea;
+    --accent-hover: #7482f0;
+    --accent-solid: #4f5ed6;
+    --accent-fg: #ffffff;
+    --accent-subtle: rgba(98, 114, 234, 0.16);
+    --focus-ring: rgba(98, 114, 234, 0.6);
+
+    --good: #3fb950;
+    --warning: #d29922;
+    --critical: #f0645c;
+    --neutral-dot: #6b7280;
+
+    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+
+    --viz-1: #3987e5;
+    --viz-2: #d95926;
+    --viz-ordinal-1: #86b6ef;
+    --viz-ordinal-2: #3987e5;
+    --viz-ordinal-3: #184f95;
+    --viz-axis: #2f3339;
+    --viz-track: rgba(255, 255, 255, 0.06);
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+  A whole-row link, without JavaScript.
+
+  The anchor lives in the first cell and is stretched over the row, so the row
+  is clickable, middle-clickable and openable in a new tab, and appears once in
+  the tab order. An onClick handler on the row would give none of that and would
+  make the table a client component for no other reason.
+*/
+.table-row-hover {
+  position: relative;
+  transition: background-color 100ms ease-out;
+}
+.table-row-hover:hover {
+  background: var(--panel-hover);
+}
+.row-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.row-link:focus-visible::after {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+/* Anything else in the row that is itself a link has to sit above the overlay. */
+.table-row-hover a:not(.row-link),
+.table-row-hover button {
+  position: relative;
+  z-index: 1;
+}
+
+/* Figures that are compared down a column must align. Everywhere else keeps
+   proportional figures, which read better in prose and in large numerals. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* One focus treatment, used by everything focusable. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: var(--radius-control);
+}
+
+::selection {
+  background: var(--accent-subtle);
+}
+
+/* Scrollbars, so a dense app does not get a chunky OS bar through the middle
+   of every scrolling panel. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
