@@ -44,6 +44,15 @@ function check(label: string, passed: boolean, detail: string) {
   console.log(`   ${passed ? "ok" : "FAIL"}  ${label}: ${detail}`);
 }
 
+/**
+ * A check whose precondition is absent. Reported, never counted as a pass —
+ * a run that quietly skips half its assertions and prints "all checks passed"
+ * is worse than one that fails.
+ */
+function skip(label: string, reason: string) {
+  console.log(`   --    ${label}: not applicable — ${reason}`);
+}
+
 function heading(text: string) {
   console.log(`\n${"─".repeat(74)}\n${text}\n${"─".repeat(74)}`);
 }
@@ -132,6 +141,27 @@ async function main() {
 
   const companiesBefore = await prisma.company.count();
 
+  /**
+   * Alias resolution can only be tested against a company that already exists.
+   * These two come from the source workbooks, which hold real student data and
+   * are deliberately not in the repository — so on a fresh database (CI, or
+   * anyone's first clone) there is nothing for "Eternal" to resolve TO, and the
+   * check is not applicable rather than failed.
+   *
+   * Captured before any submission runs, because the submissions themselves
+   * create companies: asking afterwards would find the row this run just made
+   * and call that a pass.
+   */
+  const importedNames = ["Eternal (Zomato)", "Oracle (OFSS)"];
+  const imported = new Set(
+    (
+      await prisma.company.findMany({
+        where: { name: { in: importedNames } },
+        select: { name: true },
+      })
+    ).map((company) => company.name),
+  );
+
   // ---------------------------------------------------------------- submit
   heading("Submitting");
 
@@ -208,7 +238,7 @@ async function main() {
 
   // ---------------------------------------------------------------- verdicts
   heading("Final state");
-  await finalChecks(companiesBefore, accepted, flagged);
+  await finalChecks(companiesBefore, accepted, flagged, imported);
 
   console.log(
     `\n${failures === 0 ? "All checks passed." : `${failures} check(s) FAILED.`}\n` +
@@ -247,7 +277,12 @@ async function checkpoint(count: number) {
   }
 }
 
-async function finalChecks(companiesBefore: number, accepted: number, flagged: number) {
+async function finalChecks(
+  companiesBefore: number,
+  accepted: number,
+  flagged: number,
+  imported: Set<string>,
+) {
   const batch = await prisma.batch.findUniqueOrThrow({ where: { year: BATCH_YEAR } });
 
   const [overview, tierBreakdown, branches, recruiters, inflation, directory] = await Promise.all([
@@ -272,16 +307,31 @@ async function finalChecks(companiesBefore: number, accepted: number, flagged: n
     select: { name: true },
   });
 
-  check(
-    "'Eternal' resolved to the imported company",
-    eternal?.name === "Eternal (Zomato)",
-    `matched "${eternal?.name}"`,
-  );
-  check(
-    "'Oracle(OFSS)' resolved without creating a duplicate",
-    oracle?.name === "Oracle (OFSS)",
-    `matched "${oracle?.name}"`,
-  );
+  if (imported.has("Eternal (Zomato)")) {
+    check(
+      "'Eternal' resolved to the imported company",
+      eternal?.name === "Eternal (Zomato)",
+      `matched "${eternal?.name}"`,
+    );
+  } else {
+    skip(
+      "'Eternal' resolved to the imported company",
+      "no imported history in this database, so there is nothing to resolve to",
+    );
+  }
+
+  if (imported.has("Oracle (OFSS)")) {
+    check(
+      "'Oracle(OFSS)' resolved without creating a duplicate",
+      oracle?.name === "Oracle (OFSS)",
+      `matched "${oracle?.name}"`,
+    );
+  } else {
+    skip(
+      "'Oracle(OFSS)' resolved without creating a duplicate",
+      "no imported history in this database, so there is nothing to resolve to",
+    );
+  }
   console.log(
     `   --  companies created by this batch: ${companiesAfter - companiesBefore} new, ` +
       `${accepted} submissions`,
