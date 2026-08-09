@@ -1,0 +1,55 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# generated prisma client (regenerate with `npm run db:generate`)
+/generated
+
+# env — never commit real secrets or the DATABASE_URL
+.env
+.env*.local
+!.env.example
+
+# source placement workbooks: real student data, deliberately not in git.
+# Keep them locally for `npm run import:excel`.
+*.xlsx
+*.xls
+*.csv
+
+# screenshots of those workbooks are the same data in another wrapper
+Screenshot*.pdf
+Screenshot*.png
+
+# ETL human-review output
+/scripts/import/out/
+
+# testing
+/coverage
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+
+# debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# editors
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# local coding-agent state — machine-specific, not project configuration
+/.claude/settings.local.json
+/.codex/
+/.impeccable/

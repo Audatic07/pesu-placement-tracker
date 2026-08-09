@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: placement_tracker_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: placement
+      POSTGRES_PASSWORD: placement_dev_only
+      POSTGRES_DB: placement_tracker
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U placement -d placement_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The PESU authentication service, run locally.
+  #
+  # The hosted instance is on a free tier whose gateway returns 502 on slow
+  # requests — and the only slow request is a SUCCESSFUL login, because that is
+  # the one that goes on to scrape a profile. So correct passwords failed while
+  # wrong ones were rejected cleanly. Running it here removes that gateway
+  # entirely and takes the app off a dependency it does not control, which
+  # matters for something meant to last.
+  #
+  # It still talks to PESU Academy over the network; nothing is cached locally
+  # and no credential is stored, here or upstream.
+  auth:
+    image: pesudev/pesu-auth:latest
+    container_name: placement_tracker_auth
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health', timeout=5).status==200 else 1)\"",
+        ]
+      interval: 10s
+      timeout: 8s
+      retries: 6
+      start_period: 20s
+
+volumes:
+  pgdata:

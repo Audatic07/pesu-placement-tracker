@@ -1,0 +1,923 @@
+// PESU Placement Tracker — data model
+//
+// Two design decisions drive everything here, and both exist because the
+// spreadsheets this replaces could not survive their own success:
+//
+//   1. Compensation is a SET OF COMPONENTS, never a single number. The 2026
+//      sheet lists Meesho at 60 LPA with the note "All the extra money in CTC
+//      is majorly retention bonus over a period of 4-5 years", and SAP at 26
+//      LPA of which 8L is free meals and transport. One `ctc` column cannot
+//      tell a student what they will actually be paid.
+//
+//   2. Rules are CONFIG ROWS, not constants. Tier boundaries, offer quotas,
+//      tax slabs and CPI all drift. The 2026 sheet says its Dream tier is
+//      "Applicable to 2025 batch only" — the drift is already visible in the
+//      source data. Anything hardcoded here becomes a lie within two batches.
+//
+// See PRODUCT.md for what the product is for, and README.md for how to run it.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===========================================================================
+// ENUMS
+// ===========================================================================
+
+enum UserRole {
+  STUDENT
+  VERIFIER // trusted seniors / placement reps: can corroborate, not delete
+  ADMIN // can resolve reports, edit records
+  SUPER_ADMIN // can grant roles and change batch config
+}
+
+/// Which recruitment season an offer belongs to. Derived from the sheets:
+/// the 2026 workbook keeps "Summer Internship PPOs" on its own tab because
+/// those are 5th-semester offers that convert, not final placements.
+enum OfferCycle {
+  SUMMER_INTERNSHIP // after 3rd year, ~2 months, may convert to PPO
+  SIX_MONTH_INTERNSHIP // final year Jan-Jun
+  FULL_TIME // FTE
+}
+
+/// What the offer actually grants. This is the sheet's "Placed" super-column,
+/// which splits into Internship / FTE / Both.
+enum OfferNature {
+  INTERNSHIP_ONLY
+  FTE_ONLY
+  INTERNSHIP_PLUS_FTE // the "Both" column
+  PPO_CONVERTED // summer internship that became an FTE offer
+}
+
+enum DriveStatus {
+  ANNOUNCED
+  IN_PROGRESS
+  COMPLETED
+  DITCHED // announced, then never ran the process ("Companies that ditched so far: 5")
+  NO_HIRES // ran interviews, hired nobody — black rows in the sheet, distinct from unknown
+}
+
+/// The sheets record GPA cutoffs as free text: "8(+ Resume)", "Resume Based",
+/// "8.91 + (10th &12th > 90)", "7 (Mostly Resume Based and 8.5+)". We keep the
+/// raw string AND a parsed number, and record which kind it was.
+enum GpaCutoffKind {
+  STRICT // a hard numeric bar
+  RESUME_BASED // no numeric bar; shortlisting on resume/projects
+  MIXED // nominal bar but resume decides in practice
+  NONE // explicitly open to all
+  UNKNOWN // not recorded
+}
+
+enum RoundKind {
+  PRE_PLACEMENT_TALK // the sheet's "Presentation" / 2027 sheet's "PPT DATE"
+  RESUME_SHORTLIST
+  ONLINE_ASSESSMENT
+  GROUP_DISCUSSION
+  TAKE_HOME_ASSIGNMENT
+  HACKATHON
+  TECHNICAL_INTERVIEW
+  SYSTEM_DESIGN
+  MANAGERIAL
+  HIRING_MANAGER
+  HR
+  OTHER
+}
+
+/// Encoded in the sheets as cell fill colour on the OA/interview date columns:
+/// green (FFB6D7A8) = online, pink (FFF4CCCC) = in person.
+enum RoundMode {
+  ONLINE
+  IN_PERSON
+  HYBRID
+  UNKNOWN
+}
+
+enum RoleFamily {
+  SDE
+  DATA_SCIENCE
+  DATA_ENGINEERING
+  ANALYST
+  QA_SDET
+  DEVOPS_SRE
+  EMBEDDED_HARDWARE
+  CYBERSECURITY
+  PRODUCT
+  CONSULTING
+  RESEARCH
+  NON_TECH
+  OTHER
+}
+
+enum WorkMode {
+  ONSITE
+  HYBRID
+  REMOTE
+  UNKNOWN
+}
+
+/// Several companies never declared a package. The 2026 workbook has a whole
+/// "Internship Only" tab that exists solely because, in its own words, "The
+/// companies that haven't declared their CTC's can't be classified into any
+/// tiers". PBC appears literally in cells and means performance-based
+/// conversion — the package depends on how the internship goes.
+enum DisclosureStatus {
+  DISCLOSED
+  PARTIAL // some components known, total not
+  PERFORMANCE_BASED // literal "PBC" in the sheet
+  NOT_DISCLOSED
+}
+
+enum CompensationComponentKind {
+  FIXED_BASE
+  VARIABLE_PAY // performance/company-linked, recurring
+  JOINING_BONUS // one-time
+  RETENTION_BONUS // one-time or staged, often multi-year
+  RELOCATION // one-time
+  ESOP
+  RSU
+  GRATUITY
+  PROVIDENT_FUND
+  INSURANCE
+  PERKS // meals, transport, wellness — real, but not cash
+  OTHER
+}
+
+enum AcceptanceStatus {
+  ACCEPTED
+  DECLINED
+  PENDING
+  REVOKED // company withdrew the offer
+}
+
+/// Whether the world is allowed to see who this offer belongs to.
+/// ANONYMOUS is the default everywhere: honest CGPA and package reporting
+/// depends on people not feeling exposed.
+enum NameVisibility {
+  ANONYMOUS
+  NAMED
+}
+
+enum RecordSource {
+  SELF_REPORTED // a student submitted it
+  OFFICIAL_IMPORT // came from the placement sheets / placement cell
+  ADMIN_ENTERED
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  CORROBORATED // other students independently reported matching figures
+  ADMIN_VERIFIED
+  DISPUTED // an upheld report, or an unresolved credible one
+  REMOVED // soft-deleted by an admin; retained for audit
+}
+
+enum ReportReason {
+  INFLATED_CTC
+  FAKE_OFFER
+  WRONG_COMPANY
+  DUPLICATE
+  PRIVACY_VIOLATION
+  ABUSE
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  UNDER_REVIEW
+  UPHELD // report was right; the offer was corrected or removed
+  REJECTED // report was wrong; the offer stands
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  SOFT_DELETE
+  RESTORE
+  ROLE_GRANT
+  ROLE_REVOKE
+  REPORT_RESOLVE
+  CONFIG_CHANGE
+  IMPORT
+  LOGIN
+  EXPORT
+}
+
+// ===========================================================================
+// CONFIGURATION — the parts that must be editable in 2036 without a deploy
+// ===========================================================================
+
+/// A graduating batch (e.g. 2026). Nearly everything is scoped to one.
+model Batch {
+  id   String @id @default(cuid())
+  /// Graduating year: 2026, 2027, ...
+  year Int    @unique
+
+  /// When this batch's recruitment season opened. The 2026 sheet records
+  /// "The process started on 01 Aug 2025" — needed to align cumulative offer
+  /// curves across batches at equal day-offset.
+  seasonStartsAt DateTime?
+  seasonEndsAt   DateTime?
+
+  /// True once the batch has graduated and the record is frozen.
+  isArchived Boolean @default(false)
+
+  /// Free-text policy note copied from the source of truth, so a maintainer
+  /// in 2032 can see what the rules actually said at the time.
+  policyNote String?
+
+  tierConfigs    TierConfig[]
+  strengths      BatchBranchStrength[]
+  submissionRule SubmissionPolicy?
+  drives         Drive[]
+  offers         Offer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([year])
+}
+
+/// Tier boundaries, per batch. NEVER hardcode these.
+/// 2026 defaults: T1 >= 12, T2 6-12, T3 3-6, with a Dream tier at 60+ that
+/// the sheet itself marks as 2025-only.
+model TierConfig {
+  id      String @id @default(cuid())
+  batchId String
+  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  /// "TIER_1", "TIER_2", "TIER_3", "DREAM" — a string, not an enum, because a
+  /// future batch may invent a tier and that must not require a migration.
+  key   String
+  label String
+  /// Display order, ascending = better.
+  rank  Int
+
+  /// Inclusive lower bound, exclusive upper bound, in LPA of CTC.
+  minCtcLpa Decimal  @db.Decimal(10, 2)
+  maxCtcLpa Decimal? @db.Decimal(10, 2) // null = unbounded
+
+  @@unique([batchId, key])
+  @@index([batchId, rank])
+}
+
+/// How many students are in each branch of a batch. Without this, placement
+/// PERCENTAGE is impossible — neither source workbook records it.
+model BatchBranchStrength {
+  id       String @id @default(cuid())
+  batchId  String
+  batch    Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  campusId String?
+  campus   Campus? @relation(fields: [campusId], references: [id], onDelete: SetNull)
+
+  studentCount Int
+
+  @@unique([batchId, branchId, campusId])
+}
+
+/// How many offers a student may submit. Defaults follow the product spec:
+/// 1 summer internship, 3 internships, 1 full-time offer per tier.
+/// The official 2026 PESU policy was stricter ("at most 1 internship and 2 FTE
+/// offers", with tier-progression rules) — hence config, not code.
+model SubmissionPolicy {
+  id      String @id @default(cuid())
+  batchId String @unique
+  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  maxSummerInternships   Int @default(1)
+  maxSixMonthInternships Int @default(3)
+  maxFullTimePerTier     Int @default(1)
+  maxFullTimeTotal       Int @default(3)
+
+  /// Human-readable statement of the rule, shown in the submission UI so
+  /// students see the same wording the engine enforces.
+  description String?
+}
+
+/// Income tax slabs for one financial year, used by the in-hand estimator.
+/// Config so the estimate cannot silently rot into being wrong.
+model TaxRegimeConfig {
+  id String @id @default(cuid())
+  /// "2026-27"
+  financialYear String @unique
+  regimeName    String @default("new")
+
+  /// Ordered slabs: [{ upToLpa: 4, ratePercent: 0 }, ...]. JSON because slab
+  /// COUNT changes between budgets, not just the numbers.
+  slabs Json
+
+  standardDeductionInr Decimal @db.Decimal(12, 2)
+  cessPercent          Decimal @db.Decimal(5, 2)
+  /// Employer PF is capped in practice; store the assumption we used.
+  employeePfPercent    Decimal @db.Decimal(5, 2)
+  professionalTaxInr   Decimal @db.Decimal(12, 2)
+
+  /// Rebate under s.87A equivalent: income at or below this pays no tax.
+  rebateThresholdInr Decimal? @db.Decimal(12, 2)
+
+  notes String?
+}
+
+/// Consumer price index, for comparing packages across decades. 12 LPA in
+/// 2026 and 12 LPA in 2036 are not the same offer.
+model CpiIndex {
+  id            String  @id @default(cuid())
+  financialYear String  @unique
+  indexValue    Decimal @db.Decimal(10, 3)
+  /// Which series this came from, so the number is auditable.
+  source        String?
+}
+
+model Campus {
+  id   String @id @default(cuid())
+  /// PESU auth returns campusCode 1 = RR, 2 = EC.
+  code Int    @unique
+  name String @unique
+
+  students   Student[]
+  strengths  BatchBranchStrength[]
+
+  @@index([code])
+}
+
+model Branch {
+  id        String  @id @default(cuid())
+  /// "CSE", "AIML", "ECE", "EEE", "MECH", "BT" — from the Branch_List tab.
+  code      String  @unique
+  name      String
+  /// Display order in tables and charts.
+  rank      Int     @default(0)
+  isActive  Boolean @default(true)
+  /// Names PESU auth or the sheets have used for this branch, so a rename in
+  /// 2030 does not orphan a decade of records.
+  aliases   String[]
+
+  students   Student[]
+  strengths  BatchBranchStrength[]
+  offers     Offer[]
+
+  @@index([rank])
+}
+
+model Program {
+  id       String  @id @default(cuid())
+  /// "BTECH", "MTECH", "MCA", "BCA", "BBA"
+  code     String  @unique
+  name     String
+  isActive Boolean @default(true)
+  aliases  String[]
+
+  /// Nominal length. Used to infer graduating batch from the admission year
+  /// encoded in the SRN (PES1UG23CS001 -> admitted 2023 -> graduates 2027).
+  durationYears  Int @default(4)
+  totalSemesters Int @default(8)
+
+  students Student[]
+}
+
+// ===========================================================================
+// IDENTITY
+// ===========================================================================
+
+/// A student, established by PESU credentials. We never store a PESU password
+/// in any form — see lib/auth. The profile here is a snapshot taken at login.
+model Student {
+  id String @id @default(cuid())
+
+  /// PESU SRN. Unique identity anchor and the reason sockpuppets are hard.
+  /// Admin-visible only; never serialised to a public response.
+  srn String @unique
+  prn String? @unique
+
+  name  String
+  email String?
+  phone String?
+
+  campusId  String?
+  campus    Campus?  @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  branchId  String?
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  programId String?
+  program   Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  section       String?
+  /// Semester at last login — used to infer graduating batch.
+  currentSemester Int?
+  graduationYear  Int?
+
+  role UserRole @default(STUDENT)
+
+  /// Set when a graduated student converts to email-based access, since PESU
+  /// credentials lapse and would otherwise orphan the account.
+  isAlumni       Boolean   @default(false)
+  alumniEmail    String?
+
+  lastLoginAt DateTime?
+  /// Blocks login without deleting any of their contributed data.
+  isSuspended Boolean  @default(false)
+  suspendedReason String?
+
+  offers            Offer[]
+  reportsFiled      Report[]           @relation("ReportAuthor")
+  reportsResolved   Report[]           @relation("ReportResolver")
+  auditEntries      AuditLog[]
+  notifications     Notification[]
+  offerRevisions    OfferRevision[]
+  companyWatches    CompanyWatch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([branchId, graduationYear])
+  @@index([role])
+}
+
+// ===========================================================================
+// COMPANIES — with aliases, because the sheets prove this is necessary
+// ===========================================================================
+
+/// Canonical company. `parentId` folds IBM (ISL) / (ISDL) / (CIO) / (KPH)
+/// under one IBM, while keeping the arms distinguishable.
+model Company {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  slug     String  @unique
+  parentId String?
+  parent   Company?  @relation("CompanyHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Company[] @relation("CompanyHierarchy")
+
+  /// "Product", "Services", "Fintech", "Semiconductor", ...
+  sector           String?
+  isProductCompany Boolean?
+  websiteUrl       String?
+  logoUrl          String?
+  headquarters     String?
+
+  aliases CompanyAlias[]
+  drives  Drive[]
+  offers  Offer[]
+  watches CompanyWatch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([parentId])
+}
+
+/// Every spelling the world has used. `normalized` is lowercase, punctuation
+/// and whitespace stripped, so "Oracle(OFSS)" and "Oracle (OFSS)" collapse.
+/// This is also what the submission form matches free-text input against.
+model CompanyAlias {
+  id         String  @id @default(cuid())
+  companyId  String
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  alias      String
+  normalized String  @unique
+
+  @@index([companyId])
+}
+
+/// A student following a company for updates.
+model CompanyWatch {
+  id        String   @id @default(cuid())
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([studentId, companyId])
+}
+
+// ===========================================================================
+// DRIVES — the aggregate layer. This is what the spreadsheets are.
+// ===========================================================================
+
+/// One company's recruitment campaign, for one batch, in one cycle.
+/// A company that returns mid-season gets a second Drive with visitNumber = 2;
+/// that is how "Repeat Companies" (purple in the sheet) is derived rather than
+/// hand-coloured.
+model Drive {
+  id        String     @id @default(cuid())
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  batchId   String
+  batch     Batch      @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  cycle     OfferCycle
+
+  visitNumber Int         @default(1)
+  status      DriveStatus @default(ANNOUNCED)
+
+  /// Pre-placement talk. "Presentation" in the 2026 sheet, "PPT DATE" in 2027.
+  pptDate       DateTime?
+  processStartAt DateTime?
+  processEndAt   DateTime?
+
+  /// Branch codes this drive was open to, e.g. ["CSE","AIML","ECE"].
+  eligibleBranches String[]
+  eligiblePrograms String[]
+
+  /// Raw string preserved verbatim; the parse is stored beside it, never
+  /// instead of it. "8(+ Resume)" must still be readable in 2036.
+  gpaCutoffRaw     String?
+  gpaCutoffNumeric Decimal?      @db.Decimal(4, 2)
+  gpaCutoffKind    GpaCutoffKind @default(UNKNOWN)
+
+  /// Backlog / standing-arrears policy, when stated.
+  backlogPolicy String?
+
+  source RecordSource @default(SELF_REPORTED)
+  notes  String?
+
+  roles  DriveRole[]
+  funnel DriveFunnel?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, batchId, cycle, visitNumber])
+  @@index([batchId, cycle])
+  @@index([status])
+  @@index([pptDate])
+}
+
+/// A role within a drive. The sheets' merged company cells spanning several
+/// role rows become one Drive with several DriveRoles.
+model DriveRole {
+  id      String @id @default(cuid())
+  driveId String
+  drive   Drive  @relation(fields: [driveId], references: [id], onDelete: Cascade)
+
+  title      String
+  roleFamily RoleFamily  @default(OTHER)
+  nature     OfferNature @default(FTE_ONLY)
+
+  /// Nullable on purpose: undisclosed packages cannot be tiered, which is
+  /// exactly why the 2026 workbook needed a separate "Internship Only" tab.
+  tierKey String?
+
+  locations             String[]
+  workMode              WorkMode @default(UNKNOWN)
+  bondMonths            Int?
+  internshipDurationMonths Int?
+
+  /// Not unique: a merged compensation cell in the source means several roles
+  /// genuinely SHARE one advertised package, and statistics over packages must
+  /// count it once. Cognizant advertises one stipend across three roles.
+  compensationId String?
+  compensation   CompensationPackage? @relation(fields: [compensationId], references: [id], onDelete: SetNull)
+
+  /// Headcounts as the source recorded them. 0 is meaningful — it means the
+  /// company interviewed and hired nobody (black rows). null means unknown.
+  placedInternship Int?
+  placedFte        Int?
+  placedBoth       Int?
+
+  notes String?
+
+  rounds InterviewRound[]
+  offers Offer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([driveId])
+  @@index([roleFamily])
+  @@index([tierKey])
+}
+
+/// Funnel counts. The sheets cannot answer "what are my odds"; this can.
+model DriveFunnel {
+  id      String @id @default(cuid())
+  driveId String @unique
+  drive   Drive  @relation(fields: [driveId], references: [id], onDelete: Cascade)
+
+  eligibleCount           Int?
+  registeredCount         Int?
+  shortlistedForOaCount   Int?
+  clearedOaCount          Int?
+  shortlistedForInterview Int?
+  offersMadeCount         Int?
+}
+
+// ===========================================================================
+// COMPENSATION
+// ===========================================================================
+
+/// Attached to a DriveRole (what was advertised) or an Offer (what a student
+/// actually got). Both, ideally — the gap between them is itself a data point.
+model CompensationPackage {
+  id String @id @default(cuid())
+
+  /// Monthly internship stipend, in rupees (not lakhs) — the sheets record
+  /// 150000, 30000 and so on.
+  stipendPerMonthInr Decimal? @db.Decimal(12, 2)
+
+  /// Headline figures in LPA, as advertised.
+  baseLpa Decimal? @db.Decimal(10, 3)
+  ctcLpa  Decimal? @db.Decimal(10, 3)
+
+  disclosure DisclosureStatus @default(DISCLOSED)
+  currency   String           @default("INR")
+
+  /// Verbatim compensation note from the source. The component rows below are
+  /// parsed from this; keeping the original means a bad parse is recoverable.
+  rawNote String?
+
+  components CompensationComponent[]
+
+  /// --- Derived, recomputed by lib/comp; cached for query performance. ---
+  /// Cash actually reaching the student in year one (excludes unvested equity
+  /// and non-cash perks, includes one-time joining bonus).
+  firstYearCashLpa Decimal? @db.Decimal(10, 3)
+  /// Recurring annual cash once one-time components fall away.
+  steadyStateCashLpa Decimal? @db.Decimal(10, 3)
+  /// Post-tax monthly take-home estimate, in rupees.
+  estimatedInHandMonthlyInr Decimal? @db.Decimal(12, 2)
+  /// ctcLpa / firstYearCashLpa. 1.0 means the headline is honest; 2.5 means
+  /// most of the number is equity, retention, and free lunch.
+  ctcInflationRatio Decimal? @db.Decimal(6, 3)
+  /// Which TaxRegimeConfig produced the in-hand figure.
+  computedForFinancialYear String?
+  computedAt               DateTime?
+
+  /// Several roles may share one package — see DriveRole.compensationId.
+  driveRoles DriveRole[]
+  offer      Offer?
+}
+
+model CompensationComponent {
+  id        String              @id @default(cuid())
+  packageId String
+  package   CompensationPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  kind  CompensationComponentKind
+  label String?
+
+  /// Stored in the currency below; converted at display time. Cloudera and AMD
+  /// quote RSUs in USD in the source sheets.
+  amount   Decimal @db.Decimal(14, 2)
+  currency String  @default("INR")
+  /// True if the amount is LPA; false if it is an absolute figure.
+  isLpa    Boolean @default(true)
+
+  /// One-time components (joining bonus, relocation) inflate year-one CTC but
+  /// not steady-state pay. Distinguishing them is the whole point.
+  isOneTime    Boolean @default(false)
+  vestingYears Decimal? @db.Decimal(4, 2)
+  /// False for perks like free meals: real value, but never cash.
+  isCash       Boolean @default(true)
+
+  note String?
+
+  @@index([packageId])
+}
+
+// ===========================================================================
+// OFFERS — the individual layer, which the spreadsheets never had
+// ===========================================================================
+
+model Offer {
+  id String @id @default(cuid())
+
+  /// Null for OFFICIAL_IMPORT rows: the 2026 sheet records that IBM (ISL)
+  /// placed 88 students, but not who they were. Aggregate history has no
+  /// owning student and must never be counted as one.
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  batchId   String
+  batch     Batch   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  /// Set when the student's submission is matched to a known drive role.
+  driveRoleId String?
+  driveRole   DriveRole? @relation(fields: [driveRoleId], references: [id], onDelete: SetNull)
+
+  roleTitle  String
+  roleFamily RoleFamily  @default(OTHER)
+  cycle      OfferCycle
+  nature     OfferNature
+
+  /// Resolved from TierConfig at write time, then kept. If a future admin
+  /// edits the boundaries, historical offers must not silently re-tier.
+  tierKey String?
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  compensationId String?              @unique
+  compensation   CompensationPackage? @relation(fields: [compensationId], references: [id], onDelete: SetNull)
+
+  /// Exact CGPA is private: shown to the owner and admins only. Public views
+  /// get `cgpaBand` ("8.50-9.00") instead.
+  cgpa     Decimal? @db.Decimal(4, 2)
+  cgpaBand String?
+
+  backlogsAtOffer     Int?
+  priorInternshipCount Int?
+  hasPriorPpo          Boolean?
+
+  locations String[]
+  workMode  WorkMode @default(UNKNOWN)
+
+  /// Terms of the offer that only the person holding it can state. The drive
+  /// layer carries these for imported history; without them here, every one of
+  /// them goes blank the moment a batch stops being covered by a spreadsheet.
+  bondMonths               Int?
+  internshipDurationMonths Int?
+
+  /// What the company ANNOUNCED it wanted, as this student heard it — not what
+  /// they personally had. `cgpa` above is the student; these two are the bar.
+  /// Student-reported, so eligibility stays answerable for batches no sheet
+  /// will ever cover.
+  announcedCgpaCutoff Decimal? @db.Decimal(4, 2)
+  eligibleBranches    String[]
+
+  offerDate        DateTime?
+  acceptanceStatus AcceptanceStatus @default(PENDING)
+
+  /// Markdown. The "notes on the placement process" a student clicks through to.
+  processNotes         String?
+  preparationResources String?
+  /// 1-5, the student's own read on how hard it was.
+  difficultyRating     Int?
+
+  nameVisibility NameVisibility     @default(ANONYMOUS)
+  source         RecordSource       @default(SELF_REPORTED)
+  verification   VerificationStatus @default(UNVERIFIED)
+  /// 0-100. Rises with independent corroboration, falls with upheld reports.
+  confidenceScore Int               @default(0)
+
+  /// Set when submitted figures diverge sharply from corroborating reports.
+  /// Flags for review; never blocks a submission.
+  isOutlierFlagged Boolean @default(false)
+  outlierNote      String?
+
+  /// Soft delete only. Nothing in this system is ever truly removed.
+  deletedAt     DateTime?
+  deletedReason String?
+
+  rounds    InterviewRound[]
+  reports   Report[]
+  revisions OfferRevision[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([batchId, cycle])
+  @@index([companyId, batchId])
+  @@index([studentId])
+  @@index([tierKey])
+  @@index([verification])
+  @@index([deletedAt])
+  @@index([offerDate])
+}
+
+/// Every edit snapshots the previous state. Required for the admin
+/// keep-or-remove decision to be reviewable years later.
+model OfferRevision {
+  id      String @id @default(cuid())
+  offerId String
+  offer   Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  editorId String?
+  editor   Student? @relation(fields: [editorId], references: [id], onDelete: SetNull)
+
+  /// Full snapshot of the offer as it was BEFORE this edit.
+  snapshot Json
+  reason   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([offerId, createdAt])
+}
+
+/// One round of a hiring process. Attached to an Offer (a student's actual
+/// experience) or to a DriveRole (the published schedule).
+model InterviewRound {
+  id          String  @id @default(cuid())
+  offerId     String?
+  offer       Offer?     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  driveRoleId String?
+  driveRole   DriveRole? @relation(fields: [driveRoleId], references: [id], onDelete: Cascade)
+
+  sequence Int
+  kind     RoundKind
+  /// The green/pink fill colour from the source sheets, promoted to a field.
+  mode     RoundMode @default(UNKNOWN)
+
+  heldOn   DateTime?
+  /// Some rounds span days: "29/10/25 - 30/10/25".
+  heldUntil DateTime?
+  /// Preserved when the source date was unparseable ("No OA", "TBD").
+  rawSchedule String?
+
+  durationMinutes Int?
+  /// "HackerRank", "Codility", "CoderPad", ...
+  platform        String?
+  topics          String[]
+  /// 1-5.
+  difficulty      Int?
+  questionsAsked  String?
+  /// Was this round cleared?
+  passed          Boolean?
+
+  notes String?
+
+  @@index([offerId, sequence])
+  @@index([driveRoleId, sequence])
+  @@index([kind])
+}
+
+// ===========================================================================
+// MODERATION
+// ===========================================================================
+
+model Report {
+  id      String @id @default(cuid())
+  offerId String
+  offer   Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  /// Visible to admins only. The reported student never learns who filed it.
+  reporterId String?
+  reporter   Student? @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: SetNull)
+
+  reason  ReportReason
+  details String?
+
+  status ReportStatus @default(OPEN)
+
+  resolvedById   String?
+  resolvedBy     Student?  @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolutionNote String?
+  resolvedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One open report per student per offer — stops pile-ons from a single account.
+  @@unique([offerId, reporterId, reason])
+  @@index([status, createdAt])
+  @@index([offerId])
+}
+
+/// Append-only. Never updated, never deleted.
+model AuditLog {
+  id      String  @id @default(cuid())
+  actorId String?
+  actor   Student? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  action     AuditAction
+  entityType String
+  entityId   String?
+
+  before Json?
+  after  Json?
+
+  /// Context for security review.
+  ipAddress String?
+  userAgent String?
+  summary   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model Notification {
+  id          String  @id @default(cuid())
+  recipientId String
+  recipient   Student @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  kind    String
+  title   String
+  body    String?
+  linkUrl String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([recipientId, readAt])
+}
+
+/// Rate limiting for submissions and reports, keyed by student + action.
+model RateLimitBucket {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  count     Int      @default(0)
+  windowEndsAt DateTime
+
+  @@index([windowEndsAt])
+}

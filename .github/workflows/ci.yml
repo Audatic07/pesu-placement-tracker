@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: placement
+          POSTGRES_PASSWORD: placement_ci_only
+          POSTGRES_DB: placement_tracker
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U placement -d placement_tracker"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://placement:placement_ci_only@localhost:5433/placement_tracker?schema=public
+      # Signs session cookies. CI-only value; never reuse it anywhere real.
+      SESSION_SECRET: ci_only_secret_not_used_outside_github_actions_0000
+      PESU_AUTH_BASE_URL: http://localhost:5000
+      PRIVACY_MIN_COHORT_SIZE: "5"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # postinstall runs `prisma generate`, so the client exists after this.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Apply migrations and seed configuration
+        run: |
+          npx prisma migrate deploy
+          npm run seed
+
+      # The demo harnesses are this project's integration suite. They drive the
+      # real submission path and assert on tier derivation, quota enforcement,
+      # company-alias resolution, outlier flagging, corroboration and the
+      # privacy gate. Both exit non-zero if any check fails.
+      - name: Correctness fixture (batch 9999)
+        run: npm run demo:9999 -- --reset
+
+      - name: Populated cohort (batch 9998)
+        run: npm run demo:9998 -- --reset
