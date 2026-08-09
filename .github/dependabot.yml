@@ -1,0 +1,33 @@
+version: 2
+
+# This app is meant to be handed to a new maintainer every couple of years.
+# A dependency graph nobody has touched since 2026 is how that handover turns
+# into a rewrite, so updates arrive weekly and in batches small enough to read.
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine noise. CI runs the full suite plus both demo
+      # harnesses against a real Postgres, so a green check here means rather
+      # more than "it installed".
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    # Majors for the framework and the ORM land as their own PRs: both have
+    # needed code changes at every major so far, and burying that in a group
+    # of fifteen bumps is how it gets merged unread.
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

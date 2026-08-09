@@ -1,0 +1,46 @@
+name: Feature or change
+description: Propose something the app should do differently
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before writing: [PRODUCT.md](../blob/main/PRODUCT.md) lists what this
+        app deliberately refuses to be — notably, it must not become a
+        leaderboard — and [DESIGN.md](../blob/main/DESIGN.md) lists what the
+        design system refuses and why. If your proposal conflicts with either,
+        say so and make the case. That is a fine thing to do; doing it silently
+        in a pull request is not.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+      description: >-
+        Describe the situation a student is actually in, not the feature. "I
+        cannot tell whether 12 LPA is good for my branch" is a problem; "add a
+        percentile widget" is a solution to one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should happen instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: privacy
+    attributes:
+      label: Does this expose anything about an individual student?
+      description: >-
+        Anything that narrows a view toward one person needs the privacy gate.
+        Answer honestly — "I am not sure" is a useful answer.
+      options:
+        - "No: it only touches aggregates already shown"
+        - "Maybe: it adds a filter or a new cut of the data"
+        - "Yes: it shows something per-person"
+        - "I am not sure"
+    validations:
+      required: true
