@@ -1,0 +1,12 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security or privacy vulnerability
+    url: https://github.com/Audatic07/pesu-placement-tracker/security/advisories/new
+    about: >-
+      Report privately, never as a public issue. Anything that reveals an
+      individual student from an aggregate belongs here.
+  - name: How to run it locally
+    url: https://github.com/Audatic07/pesu-placement-tracker/blob/main/CONTRIBUTING.md
+    about: >-
+      You do not need a PESU account to work on this — see the demo login in
+      CONTRIBUTING.md.

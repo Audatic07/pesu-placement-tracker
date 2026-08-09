@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in the app behaves wrongly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste real student data into this issue.** Not a name, not an
+        SRN, not somebody's package. If a figure is needed to explain the bug,
+        describe its shape ("a CGPA with three decimal places") rather than
+        quoting the record.
+
+        If this is a security or privacy issue — anything that reveals an
+        individual from what should be an aggregate — do not file it here. See
+        [SECURITY.md](../blob/main/SECURITY.md) and report it privately.
+
+  - type: input
+    id: url
+    attributes:
+      label: URL
+      description: >-
+        Every view in this app is URL-addressable, so the address bar is usually
+        a complete reproduction. Strip anything identifying first.
+      placeholder: /companies?batch=9998&tier=TIER_1&sort=ctc&dir=desc
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: batch
+    attributes:
+      label: Which batch were you looking at?
+      options:
+        - A real batch
+        - The demo batch 9998
+        - The fixture batch 9999
+        - Not batch-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and device, and whether you were running it locally.
+      placeholder: |
+        Firefox 141, Android phone, the hosted deployment
+    validations:
+      required: false
