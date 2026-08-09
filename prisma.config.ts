@@ -7,10 +7,28 @@ export default defineConfig({
     path: "prisma/migrations",
     seed: "tsx prisma/seed.ts",
   },
-  // Only migration and introspection commands need a connection; generating the
-  // client does not. Declaring the datasource unconditionally made `env()`
-  // throw during `prisma generate`, which postinstall runs — so `npm install`
-  // failed on every machine that had not written .env yet, which is every
-  // machine on its first clone, and inside any container build.
-  ...(process.env.DATABASE_URL ? { datasource: { url: env("DATABASE_URL") } } : {}),
+  /*
+   * Migrations connect DIRECTLY, never through a pooler.
+   *
+   * A serverless deployment points DATABASE_URL at a pooled endpoint, because
+   * each function instance opens its own connections and a small Postgres runs
+   * out of them. But a transaction-mode pooler (Neon's, Supabase's, PgBouncer
+   * generally) does not carry the session-level advisory locks Prisma takes to
+   * stop two deploys migrating at once — so `migrate deploy` against the pooled
+   * URL hangs or fails, and it fails during a build, which is the worst place
+   * to discover it.
+   *
+   * Set DIRECT_DATABASE_URL to the unpooled string wherever you deploy. Locally
+   * there is no pooler and DATABASE_URL alone is correct, so this falls back to
+   * it rather than demanding both.
+   *
+   * The datasource is declared only when a URL exists at all: generating the
+   * client needs no connection, and `prisma generate` runs from postinstall on
+   * every fresh clone, before anyone has written .env.
+   */
+  ...(process.env.DIRECT_DATABASE_URL
+    ? { datasource: { url: env("DIRECT_DATABASE_URL") } }
+    : process.env.DATABASE_URL
+      ? { datasource: { url: env("DATABASE_URL") } }
+      : {}),
 });

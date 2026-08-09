@@ -11,7 +11,8 @@ matter in production:
 
 | Variable | Notes |
 |---|---|
-| `DATABASE_URL` | Managed Postgres. Include `?sslmode=require` if your provider needs it. |
+| `DATABASE_URL` | Managed Postgres, **pooled** endpoint. Include `?sslmode=require` if your provider needs it. |
+| `DIRECT_DATABASE_URL` | The same database, unpooled. Migrations use it. A transaction-mode pooler drops the advisory locks Prisma takes during a migration, so `migrate deploy` against the pooled URL hangs or fails mid-build. |
 | `SESSION_SECRET` | 32+ characters. Generate with `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. Rotating it signs every active session out — the intended response to a suspected leak. |
 | `PESU_AUTH_BASE_URL` | Your own pesu-auth instance. See below. |
 | `SUPER_ADMIN_SRN` | The SRN promoted to `SUPER_ADMIN` on first login. Set it before anyone logs in, or nobody has admin rights. |
@@ -83,11 +84,14 @@ Push the repository and set the environment variables in the project settings.
 
 Two things to get right:
 
-- Run `prisma migrate deploy` as the build command's first step, or from a
-  separate release job. Vercel has no release phase of its own.
-- Use a pooled connection string. Serverless functions open a connection each,
-  and the connection pool in `lib/db.ts` (max 10) is per instance, not global.
-  Neon's pooled endpoint or Supabase's transaction pooler both work.
+- The `vercel-build` script runs `prisma migrate deploy` before the build, since
+  Vercel has no release phase of its own. Set `DIRECT_DATABASE_URL` or that step
+  will fail against the pooler.
+- Use a pooled connection string for `DATABASE_URL`. Serverless functions open a
+  connection each, and the pool in `lib/db.ts` (max 10) is per instance, not
+  global. Neon's pooled endpoint or Supabase's transaction pooler both work.
+- Turn off preview deployments, or point them at a separate database. Otherwise
+  every pull request branch migrates production during its build.
 
 ## After deploying
 
