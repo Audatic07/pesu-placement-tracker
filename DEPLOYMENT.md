@@ -80,7 +80,13 @@ release command to the migrate line above.
 ## Option B — Vercel
 
 Push the repository and set the environment variables in the project settings.
-`output: "standalone"` is ignored there; the platform builds Next natively.
+
+`next.config.ts` turns `output: "standalone"` OFF when `VERCEL=1`, and that is
+load-bearing rather than tidiness. Vercel traces dependencies itself after the
+build and reads `.next/next-server.js.nft.json`; a standalone build does not
+write that file at that path, so the build compiles cleanly and then dies in
+Vercel's `onBuildComplete` with an ENOENT for a file this repository never
+mentions.
 
 Two things to get right:
 
