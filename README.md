@@ -50,7 +50,7 @@ cp .env.example .env
 ```
 
 Fill in `SESSION_SECRET` — the file tells you the command that generates one.
-Then:
+Leave `DATABASE_URL` as it is; it matches the Docker Postgres below. Then:
 
 ```bash
 npm run db:up && npm run db:migrate && npm run seed
