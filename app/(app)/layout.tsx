@@ -40,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         }}
         pendingReportCount={pendingReports}
       />
-      <div className="lg:pl-[236px]">{children}</div>
+      <div style={{ paddingLeft: "236px" }}>{children}</div>
     </div>
   );
 }
