@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useEffect, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { submitOffer, type SubmitState } from "./actions";
@@ -113,6 +113,95 @@ export function OfferForm({
   const [state, formAction] = useActionState<SubmitState, FormData>(submitOffer, {});
   const [componentRows, setComponentRows] = useState<number[]>([0]);
   const [roundRows, setRoundRows] = useState<number[]>([0, 1]);
+  
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isDraftLoaded, setIsDraftLoaded] = useState(false);
+
+  // 1. Initialize draft from cookies on mount
+  useEffect(() => {
+    const draftCookie = document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("offer_draft="));
+
+    if (draftCookie) {
+      try {
+        const draftValue = draftCookie.split("=")[1] || "";
+        const parsed = JSON.parse(decodeURIComponent(draftValue));
+
+        if (parsed.componentRows) setComponentRows(parsed.componentRows);
+        if (parsed.roundRows) setRoundRows(parsed.roundRows);
+
+        // Wait for React to render any dynamic rows before populating values
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!formRef.current) return;
+
+            // Clear checkboxes to default state before populating
+            const checkboxes = formRef.current.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach((cb) => ((cb as HTMLInputElement).checked = false));
+
+            const keyCounts: Record<string, number> = {};
+            for (const [key, value] of parsed.entries) {
+              const elements = formRef.current.querySelectorAll(`[name="${key}"]`);
+              if (!elements.length) continue;
+
+              const firstEl = elements[0] as HTMLInputElement;
+              if (firstEl.type === "checkbox" || firstEl.type === "radio") {
+                const targetEl = Array.from(elements).find(
+                  (el) => (el as HTMLInputElement).value === value
+                ) as HTMLInputElement;
+                if (targetEl) targetEl.checked = true;
+              } else {
+                const idx = keyCounts[key] || 0;
+                if (elements[idx]) {
+                  (elements[idx] as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value = value as string;
+                }
+                keyCounts[key] = idx + 1;
+              }
+            }
+            setIsDraftLoaded(true);
+          });
+        });
+      } catch (e) {
+        console.error("Failed to parse draft cookie");
+        setIsDraftLoaded(true);
+      }
+    } else {
+      setIsDraftLoaded(true);
+    }
+  }, []);
+
+  // 2. Save draft utility
+  const saveDraft = () => {
+    if (!formRef.current) return;
+    const formData = new FormData(formRef.current);
+    const entries = Array.from(formData.entries());
+    const draftData = { entries, componentRows, roundRows };
+    
+    // Save cookie for 7 days
+    document.cookie = `offer_draft=${encodeURIComponent(
+      JSON.stringify(draftData)
+    )}; max-age=604800; path=/`;
+  };
+
+  // 3. Auto-save when dynamic rows are added or removed
+  useEffect(() => {
+    if (isDraftLoaded) {
+      const id = setTimeout(saveDraft, 50);
+      return () => clearTimeout(id);
+    }
+  }, [componentRows, roundRows, isDraftLoaded]);
+
+  // 4. Re-save draft if a server validation error occurs
+  useEffect(() => {
+    if (state.error) saveDraft();
+  }, [state.error]);
+
+  // 5. Intercept action to clear draft on submit attempt
+  const handleAction = (payload: FormData) => {
+    document.cookie = "offer_draft=; max-age=0; path=/;";
+    formAction(payload);
+  };
 
   const available = quota.slots.filter((slot) => slot.remaining > 0);
   const exhausted = quota.slots.filter((slot) => slot.remaining === 0);
@@ -130,7 +219,12 @@ export function OfferForm({
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form
+      action={handleAction}
+      ref={formRef}
+      onChange={saveDraft}
+      className="flex flex-col gap-4"
+    >
       <input type="hidden" name="batchYear" value={quota.batchYear} />
 
       {state.error ? (
