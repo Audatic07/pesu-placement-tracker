@@ -10,12 +10,14 @@ import {
   ChevronDown,
   FileText,
   LayoutDashboard,
+  LogOut,
   Menu,
   Plus,
   ShieldAlert,
   User,
   X,
 } from "lucide-react";
+import { logout } from "@/app/(auth)/login/actions";
 
 /**
  * The persistent sidebar.
@@ -131,12 +133,25 @@ export function Sidebar(props: SidebarProps) {
           ) : null}
         </nav>
 
-        <div className="border-t px-3 py-3" style={{ borderColor: "var(--line)" }}>
-          <div className="truncate text-[12px] font-medium">{props.student.name}</div>
-          <div className="tnum truncate text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-            {props.student.srn}
-            {props.student.branch ? ` · ${props.student.branch}` : ""}
+        <div className="flex items-center gap-2 border-t px-3 py-3" style={{ borderColor: "var(--line)" }}>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-medium">{props.student.name}</div>
+            <div className="tnum truncate text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+              {props.student.srn}
+              {props.student.branch ? ` · ${props.student.branch}` : ""}
+            </div>
           </div>
+          <form action={logout}>
+            <button
+              type="submit"
+              title="Sign out"
+              aria-label="Sign out"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] transition-colors hover:bg-[var(--panel-hover)]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <LogOut size={15} />
+            </button>
+          </form>
         </div>
       </aside>
     </>
