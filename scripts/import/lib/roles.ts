@@ -90,6 +90,12 @@ export function refineNatureFromNote(
   if (/only\s*(?:for\s*)?intern(?:ship)?|coming\s*only\s*for\s*intern|internship\s*only/i.test(note)) {
     return "INTERNSHIP_ONLY";
   }
+  // An offer that grants both, stated outright — "Internship + FTE". Placement
+  // counts prove this in the older sheets, but a drive still being run has none
+  // yet, so the note is the only signal.
+  if (/intern(?:ship)?\s*[+&]\s*fte|intern(?:ship)?\s*(?:and|plus)\s*fte|fte\s*[+&]\s*intern(?:ship)?/i.test(note)) {
+    return "INTERNSHIP_PLUS_FTE";
+  }
   return nature;
 }
 
