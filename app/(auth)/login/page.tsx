@@ -44,7 +44,7 @@ export default async function LoginPage({
 
       <div
         className="mt-8 rounded-xl border p-6"
-        style={{ borderColor: "var(--border)", background: "var(--surface-raised)" }}
+        style={{ borderColor: "rgba(255, 255, 255, 0.12)", background: "#0a0b0d" }}
       >
         <LoginForm next={next} />
       </div>
