@@ -1,168 +1,118 @@
-import type { OfferCycle } from "@/generated/prisma/enums";
-import { parseGpaCutoff } from "../lib/gpa";
-import type {
-  ImportedDrive,
-  ImportedRole,
-  ImportedRound,
-  ImportedWorkbook,
-} from "./types";
+import type { Workbook } from "exceljs";
+import type { ReviewLog } from "../lib/review";
+import type { ImportedWorkbook } from "./types";
+import {
+  readColourCodedWorkbook,
+  type TabSpec,
+} from "./scene2026";
 
 /**
- * The 2027 season, entered by hand rather than read from a spreadsheet.
+ * Reader for the 2027 placement workbook — the season being played right now.
  *
- * Unlike 2022–2026 there is no finished workbook for 2027 — the season is being
- * played right now (drives in July–August 2026). What we have is a short list of
- * companies that have visited so far, with the package they advertised and their
- * assessment / interview dates. This builds the same ImportedWorkbook the sheet
- * readers produce so the loader treats it identically.
+ * It is the same colour-coded format as 2026 (merged company blocks, round mode
+ * in cell fill, OA / Interview / Presentation date columns), so it reuses that
+ * reader; only the column layout differs. Two changes from 2026 are worth
+ * naming:
  *
- * Two things are deliberately different from the historical import:
+ *   - There is no eligible-branches column, and the compensation, placed and
+ *     date columns all sit one or more columns to the left of where 2026 puts
+ *     them. Each tab's TabSpec below pins the exact positions and the header row
+ *     is verified before any value is read.
+ *   - The footer is a single orange "Total" line rather than 2026's navy
+ *     summary block, carrying only placed counts. There is nothing rich enough
+ *     to verify the whole import against, so footers are not emitted (the
+ *     shared reader's totals-row guard still stops before that line so it is not
+ *     read as a company). Fidelity rests on the review log and a manual read.
  *
- *   - No placement headcounts. These drives are ongoing; nobody has confirmed a
- *     final count, so placedInternship/Fte/Both are all null. The offer's nature
- *     is stated in the note instead ("Internship + FTE" / "FTE Only" /
- *     "Internship Only") and refineNatureFromNote resolves it — we do not invent
- *     student counts to imply a nature.
- *   - deriveTierFromCtc is true: there are no tier tabs here, one flat list, so a
- *     role's tier is worked out from its CTC by the loader.
+ * This replaces the earlier hand-entered 2027 stub: a real workbook exists now,
+ * with tiers, so tiers come from the tabs rather than being derived from CTC.
  */
 
-const BATCH_YEAR = 2027;
-const SHEET = "2027 Batch";
-
-type Nature = "INTERN_FTE" | "FTE" | "INTERN";
-
-type Entry = {
-  company: string;
-  stipendPerMonthInr: number | null;
-  ctcLpa: number | null;
-  nature: Nature;
-  /** [day, month] in 2026 for the online assessment, if one has happened. */
-  oa?: [number, number];
-  /** [day, month] in 2026 for the interview, if one is scheduled. */
-  interview?: [number, number];
-};
-
-/**
- * Companies as reported for the 2027 batch. Names are the canonical spellings
- * from KNOWN_GROUPS where one exists (Eternal (Zomato), Netcore Cloud,
- * TheMathCompany, inMobi, Arctic Wolf, Sixt, Vyapar, 4Good.AI, IBM (ISDL)); the
- * rest — Lam Research, Cloudera, SolarWinds, Couchbase — are created fresh.
- */
-const ENTRIES: Entry[] = [
-  { company: "Eternal (Zomato)", stipendPerMonthInr: 100_000, ctcLpa: 59, nature: "INTERN_FTE", oa: [28, 7], interview: [3, 8] },
-  { company: "Netcore Cloud", stipendPerMonthInr: 30_000, ctcLpa: 29.5, nature: "INTERN_FTE", oa: [31, 7], interview: [4, 8] },
-  { company: "TheMathCompany", stipendPerMonthInr: null, ctcLpa: 6, nature: "FTE", oa: [10, 8] },
-  { company: "Lam Research", stipendPerMonthInr: 52_000, ctcLpa: 22.17838, nature: "INTERN_FTE", oa: [6, 8], interview: [10, 8] },
-  { company: "inMobi", stipendPerMonthInr: 70_000, ctcLpa: 54, nature: "INTERN_FTE", oa: [7, 8], interview: [8, 8] },
-  { company: "Arctic Wolf", stipendPerMonthInr: 60_000, ctcLpa: null, nature: "INTERN" },
-  { company: "Cloudera", stipendPerMonthInr: 45_000, ctcLpa: 23, nature: "INTERN_FTE", oa: [10, 8] },
-  { company: "Sixt", stipendPerMonthInr: 60_000, ctcLpa: 22.3, nature: "INTERN_FTE" },
-  { company: "Vyapar", stipendPerMonthInr: 40_000, ctcLpa: 24, nature: "INTERN_FTE" },
-  { company: "4Good.AI", stipendPerMonthInr: 20_000, ctcLpa: null, nature: "INTERN" },
-  { company: "IBM (ISDL)", stipendPerMonthInr: 30_000, ctcLpa: 17, nature: "INTERN_FTE" },
-  { company: "SolarWinds", stipendPerMonthInr: 45_000, ctcLpa: 20, nature: "INTERN_FTE" },
-  { company: "Couchbase", stipendPerMonthInr: 125_000, ctcLpa: 26.11466, nature: "INTERN_FTE" },
+const TABS: TabSpec[] = [
+  {
+    sheet: "Tier 1",
+    headerRow: 4,
+    firstDataRow: 5,
+    expectedHeaders: [
+      [1, /^company$/i],
+      [2, /^role$/i],
+      [3, /internship/i],
+      [4, /^base$/i],
+      [5, /ctc/i],
+      [6, /internship/i],
+      [7, /^fte$/i],
+      [8, /^both$/i],
+      [10, /gpa/i],
+      [11, /^note$/i],
+      [12, /presentation/i],
+      [13, /^oa date$/i],
+      [14, /interview/i],
+    ],
+    layout: {
+      company: 1,
+      role: 2,
+      eligibleBranches: null,
+      stipend: 3,
+      base: 4,
+      ctc: 5,
+      placedInternship: 6,
+      placedFte: 7,
+      placedBoth: 8,
+      gpaCutoff: 10,
+      note: 11,
+      presentationDate: 12,
+      oaDate: 13,
+      interviewDate: 14,
+    },
+    tierKey: "TIER_1",
+    cycle: "FULL_TIME",
+  },
+  {
+    // Company sits in column 1 but the rest of the row is shifted three columns
+    // right of Tier 1.
+    sheet: "Tier 2",
+    headerRow: 3,
+    firstDataRow: 4,
+    expectedHeaders: [
+      [1, /^company$/i],
+      [4, /^role$/i],
+      [5, /internship/i],
+      [6, /^base$/i],
+      [7, /ctc/i],
+      [8, /internship/i],
+      [9, /^fte$/i],
+      [10, /^both$/i],
+      [11, /gpa/i],
+      [12, /^note$/i],
+      [13, /presentation/i],
+      [14, /^oa date$/i],
+      [15, /interview/i],
+    ],
+    layout: {
+      company: 1,
+      role: 4,
+      eligibleBranches: null,
+      stipend: 5,
+      base: 6,
+      ctc: 7,
+      placedInternship: 8,
+      placedFte: 9,
+      placedBoth: 10,
+      gpaCutoff: 11,
+      note: 12,
+      presentationDate: 13,
+      oaDate: 14,
+      interviewDate: 15,
+    },
+    tierKey: "TIER_2",
+    cycle: "FULL_TIME",
+  },
 ];
 
-/** The note text that carries the offer nature through refineNatureFromNote. */
-const NATURE_NOTE: Record<Nature, string> = {
-  INTERN_FTE: "Internship + FTE",
-  FTE: "FTE Only",
-  INTERN: "Internship Only",
-};
-
-/** Intern-only drives are the final-semester internship; the rest are full-time
- * placement drives (their internship is captured by the nature, not the cycle). */
-const NATURE_CYCLE: Record<Nature, OfferCycle> = {
-  INTERN_FTE: "FULL_TIME",
-  FTE: "FULL_TIME",
-  INTERN: "SIX_MONTH_INTERNSHIP",
-};
-
-function day(dayOfMonth: number, month: number): Date {
-  return new Date(Date.UTC(2026, month - 1, dayOfMonth));
-}
-
-function buildRounds(entry: Entry): ImportedRound[] {
-  const rounds: ImportedRound[] = [];
-  let sequence = 1;
-
-  if (entry.oa) {
-    rounds.push({
-      kind: "ONLINE_ASSESSMENT",
-      mode: "UNKNOWN",
-      sequence: sequence++,
-      heldOn: day(entry.oa[0], entry.oa[1]),
-      heldUntil: null,
-      rawSchedule: null,
-    });
-  }
-  if (entry.interview) {
-    rounds.push({
-      kind: "TECHNICAL_INTERVIEW",
-      mode: "UNKNOWN",
-      sequence: sequence++,
-      heldOn: day(entry.interview[0], entry.interview[1]),
-      heldUntil: null,
-      rawSchedule: null,
-    });
-  }
-
-  return rounds;
-}
-
-function buildDrive(entry: Entry, index: number): ImportedDrive {
-  const note = NATURE_NOTE[entry.nature];
-
-  const role: ImportedRole = {
-    title: null,
-    stipendPerMonthInr: entry.stipendPerMonthInr,
-    baseLpa: null,
-    ctcLpa: entry.ctcLpa,
-    sharesCompensationWithPrevious: false,
-    disclosure: "PARTIAL",
-    compensationNote: null,
-    components: [],
-    placedInternship: null,
-    placedFte: null,
-    placedBoth: null,
-    locations: [],
-    bondMonths: null,
-    internshipDurationMonths: null,
-    note,
-    rounds: buildRounds(entry),
-    sheetRow: index + 1,
-  };
-
-  return {
-    companyName: entry.company,
-    inlineNote: null,
-    tierKey: null,
-    cycle: NATURE_CYCLE[entry.nature],
-    eligibleBranches: [],
-    gpaCutoff: parseGpaCutoff(null),
-    flags: {
-      isRepeatCompany: false,
-      hiredTenPlus: false,
-      massHired: false,
-      hiredNobody: false,
-      ditched: false,
-      isFooter: false,
-    },
-    pptDate: null,
-    note,
-    roles: [role],
-    sheet: SHEET,
-    sheetRow: index + 1,
-  };
-}
-
-export function buildScene2027(): ImportedWorkbook {
-  return {
-    batchYear: BATCH_YEAR,
-    drives: ENTRIES.map(buildDrive),
-    footers: [],
-    deriveTierFromCtc: true,
-  };
+export function readScene2027(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
+  return readColourCodedWorkbook(
+    workbook,
+    { batchYear: 2027, tabs: TABS, emitFooters: false, deriveTierFromCtc: false },
+    review,
+  );
 }

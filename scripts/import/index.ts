@@ -12,7 +12,7 @@ import {
   readScene2024,
   readScene2025,
 } from "./sheets/historical-configs";
-import { buildScene2027 } from "./sheets/scene2027";
+import { readScene2027 } from "./sheets/scene2027";
 import { loadWorkbook } from "./load";
 import { verifyAgainstFooters } from "./verify";
 import { recomputeDerivedCompensation } from "../../lib/comp/recompute";
@@ -31,17 +31,15 @@ import type { ImportedWorkbook } from "./sheets/types";
  * the result: it lists every judgement the importer made and every fragment it
  * refused to guess at.
  *
- * The finished seasons — 2022 through 2026 — are read from their workbooks.
- * Each `Placement Scene '<yy>.xlsx` is optional: a season whose file is not
- * present is skipped with a note rather than failing the whole run, so the
- * import works from whichever archives a maintainer has to hand. Importing them
- * gives every recruiter a previous-years section and seeds the company list.
+ * Every season — 2022 through 2027 — is read from its workbook. Each
+ * `Placement Scene '<yy>.xlsx` is optional: a season whose file is not present
+ * is skipped with a note rather than failing the whole run, so the import works
+ * from whichever archives a maintainer has to hand. Importing them gives every
+ * recruiter a previous-years section and seeds the company list.
  *
- * 2027 is different: it is the season being played right now. There is no
- * finished workbook for it, only the short list of companies that have visited
- * so far (scene2027.ts). It is imported as official drives WITHOUT placement
- * counts — the drives are ongoing, so the offer's nature is recorded but no
- * student headcount is invented.
+ * 2027 is the season being played right now, so its sheet is still filling in —
+ * re-run the import to pick up new drives. Only 2026 carries a verifiable
+ * footer; the other seasons' fidelity rests on the review log.
  */
 
 const REVIEW_PATH = resolve("scripts/import/out/import-review.csv");
@@ -49,41 +47,40 @@ const REVIEW_PATH = resolve("scripts/import/out/import-review.csv");
 /** A season and how to obtain its parsed workbook. */
 type Source = {
   batchYear: number;
-  /** null for the in-memory 2027 season. */
-  file: { envVar: string; defaultPath: string } | null;
-  read: (workbook: ExcelJS.Workbook | null, review: ReviewLog) => ImportedWorkbook;
+  file: { envVar: string; defaultPath: string };
+  read: (workbook: ExcelJS.Workbook, review: ReviewLog) => ImportedWorkbook;
 };
 
 const SOURCES: Source[] = [
   {
     batchYear: 2022,
     file: { envVar: "IMPORT_XLSX_2022", defaultPath: "./Placement Scene '22.xlsx" },
-    read: (wb, review) => readScene2022(wb!, review),
+    read: (wb, review) => readScene2022(wb, review),
   },
   {
     batchYear: 2023,
     file: { envVar: "IMPORT_XLSX_2023", defaultPath: "./Placement Scene '23.xlsx" },
-    read: (wb, review) => readScene2023(wb!, review),
+    read: (wb, review) => readScene2023(wb, review),
   },
   {
     batchYear: 2024,
     file: { envVar: "IMPORT_XLSX_2024", defaultPath: "./Placement Scene '24.xlsx" },
-    read: (wb, review) => readScene2024(wb!, review),
+    read: (wb, review) => readScene2024(wb, review),
   },
   {
     batchYear: 2025,
     file: { envVar: "IMPORT_XLSX_2025", defaultPath: "./Placement Scene '25.xlsx" },
-    read: (wb, review) => readScene2025(wb!, review),
+    read: (wb, review) => readScene2025(wb, review),
   },
   {
     batchYear: 2026,
     file: { envVar: "IMPORT_XLSX_2026", defaultPath: "./Placement Scene '26.xlsx" },
-    read: (wb, review) => readScene2026(wb!, review),
+    read: (wb, review) => readScene2026(wb, review),
   },
   {
     batchYear: 2027,
-    file: null,
-    read: () => buildScene2027(),
+    file: { envVar: "IMPORT_XLSX_2027", defaultPath: "./Placement Scene '27.xlsx" },
+    read: (wb, review) => readScene2027(wb, review),
   },
 ];
 
@@ -129,10 +126,6 @@ function summarise(parsed: ImportedWorkbook): void {
  * season's workbook is not present, so the caller can skip it.
  */
 async function parseSource(source: Source, review: ReviewLog): Promise<ImportedWorkbook | null> {
-  if (source.file === null) {
-    return source.read(null, review);
-  }
-
   const path = process.env[source.file.envVar] ?? source.file.defaultPath;
   const resolved = resolve(path);
   if (!existsSync(resolved)) {

@@ -35,7 +35,7 @@ import type {
  * failure rather than a database full of stipends in the CTC field.
  */
 
-type ColumnLayout = {
+export type ColumnLayout = {
   company: number;
   role: number;
   eligibleBranches: number | null;
@@ -52,7 +52,7 @@ type ColumnLayout = {
   note: number;
 };
 
-type TabSpec = {
+export type TabSpec = {
   sheet: string;
   /** First row containing data. */
   firstDataRow: number;
@@ -470,6 +470,15 @@ function readTab(
     const roleText = cellText(sheet.getCell(row, spec.layout.role));
     const noteText = cellText(sheet.getCell(row, spec.layout.note));
 
+    // A totals row with no company of its own closes the tab. The 2026 footer
+    // is navy and caught above; the 2027 sheet instead ends with an orange
+    // "Total" line whose only label sits in the role column, so without this it
+    // would be appended as a phantom role to the last real company.
+    if (!companyText && roleText && /^(total|grand ?total)$/i.test(roleText.trim())) {
+      footerStartRow = row;
+      break;
+    }
+
     // A row with no company, role or note carries nothing.
     if (!companyText && !roleText && !noteText) continue;
 
@@ -737,19 +746,56 @@ function readFooter(
   return stats;
 }
 
-export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
-  const batchYear = 2026;
-  const window = seasonWindowForBatch(batchYear);
+/** How to read one colour-coded workbook — the shape shared by 2026 and 2027. */
+export type ColourWorkbookSpec = {
+  batchYear: number;
+  tabs: TabSpec[];
+  /**
+   * Whether to collect each tab's own footer totals for verification. True for
+   * 2026, whose tabs carry the full navy summary block; false for a sheet whose
+   * footer is absent or too sparse to check against (2027 has only a placed
+   * count), so its fidelity rests on the review log instead.
+   */
+  emitFooters: boolean;
+  /** Passed straight through to the loader — see ImportedWorkbook. */
+  deriveTierFromCtc: boolean;
+};
+
+/**
+ * Reads any workbook in the "Placement Scene" colour-coded format: merged
+ * company blocks, meaning encoded in cell fill, and per-tab column layouts
+ * declared as TabSpecs. Both the 2026 and 2027 seasons use it; they differ only
+ * in their tab layouts and whether a verifiable footer exists.
+ */
+export function readColourCodedWorkbook(
+  workbook: Workbook,
+  spec: ColourWorkbookSpec,
+  review: ReviewLog,
+): ImportedWorkbook {
+  const window = seasonWindowForBatch(spec.batchYear);
 
   const drives: ImportedDrive[] = [];
   const footers: SheetFooterStats[] = [];
 
-  for (const spec of TABS) {
-    const result = readTab(workbook, spec, window, review);
+  for (const tab of spec.tabs) {
+    const result = readTab(workbook, tab, window, review);
     drives.push(...result.drives);
-    footers.push(result.footer);
+    if (spec.emitFooters) footers.push(result.footer);
   }
 
+  return {
+    batchYear: spec.batchYear,
+    drives,
+    footers,
+    deriveTierFromCtc: spec.deriveTierFromCtc,
+  };
+}
+
+export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
   // Tiers come from the tabs. A role with no tier here has none by design.
-  return { batchYear, drives, footers, deriveTierFromCtc: false };
+  return readColourCodedWorkbook(
+    workbook,
+    { batchYear: 2026, tabs: TABS, emitFooters: true, deriveTierFromCtc: false },
+    review,
+  );
 }
