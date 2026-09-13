@@ -23,9 +23,13 @@ finished season it comes from the batch's placement sheet — a spreadsheet the
 students themselves maintained, so its rows are the same kind of evidence as a
 submission. The import expands "placed 88" into 88 offer rows with no owning
 student: the sheet says how many, not who. They count in every figure a
-submission counts in. What they never do is vote more than once where the app
-reasons about people: outlier detection and corroboration treat an expanded
-headcount as one observation, not eighty-eight.
+submission counts in, and each one stands for a student who has not filed.
+When that student files their own offer, the stand-in yields to it — the
+count stays what the sheet said, and the anonymous row is replaced by the
+person, with the CGPA, rounds and notes only they could give. What stand-ins
+never do is vote more than once where the app reasons about people: outlier
+detection and corroboration treat an expanded headcount as one observation,
+not eighty-eight.
 
 **Anonymity is structural, not a checkbox.** Offers are anonymous by default,
 exact CGPA is banded in public views, and no statistic is shown for a cohort

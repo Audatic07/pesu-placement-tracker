@@ -230,7 +230,8 @@ async function main() {
       console.log(
         `  batch ${parsed.batchYear}: ${result.companies} companies, ` +
           `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds, ` +
-          `${result.offers} offers`,
+          `${result.offers} offers` +
+          (result.yielded > 0 ? ` (${result.yielded} yielded to students' own submissions)` : ""),
       );
     }
 

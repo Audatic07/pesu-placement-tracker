@@ -17,6 +17,8 @@ import type { ImportedWorkbook, SheetFooterStats } from "./sheets/types";
  */
 
 type Check = {
+  /** Printed under the line whether or not it matched. */
+  detail?: string;
   label: string;
   expected: number | null;
   actual: number | null;
@@ -245,15 +247,26 @@ export async function verifyAgainstFooters(
   // which is exactly why it must not be skippable: `grandTotal || null` would
   // have turned a real zero into "nothing to check against" and passed silently
   // on the one shape most likely to mean the expander did nothing at all.
-  const expandedOffers = await prisma.offer.count({
-    where: { batchId: batch.id, source: "OFFICIAL_IMPORT", deletedAt: null },
-  });
+  //
+  // Counted whether or not they still show: a stand-in that yielded to a
+  // student's own submission is still a row the expansion wrote, and the
+  // placement it stood for is still counted — once, by the person now.
+  const [expandedOffers, yielded] = await Promise.all([
+    prisma.offer.count({ where: { batchId: batch.id, source: "OFFICIAL_IMPORT" } }),
+    prisma.offer.count({
+      where: { batchId: batch.id, source: "OFFICIAL_IMPORT", yieldedToId: { not: null } },
+    }),
+  ]);
 
   checks.push({
     label: "All tabs: offer rows expanded from those headcounts",
     expected: grandTotal,
     actual: expandedOffers,
     tolerance: 0,
+    detail:
+      yielded > 0
+        ? `${yielded} of them have yielded to students' own submissions and no longer show`
+        : undefined,
   });
 
   // Every tab's COUNTA of the company column, checked per tab. This covers the
@@ -306,7 +319,8 @@ export async function verifyAgainstFooters(
     const marker = matched ? "ok" : check.informational ? "--" : "XX";
     lines.push(
       `    ${marker} ${check.label}: sheet ${format(check.expected)}, imported ${format(actual)}` +
-        (!matched && check.note ? `\n          ${check.note}` : ""),
+        (!matched && check.note ? `\n          ${check.note}` : "") +
+        (check.detail ? `\n          ${check.detail}` : ""),
     );
   }
 

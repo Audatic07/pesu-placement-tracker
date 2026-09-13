@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { recordAudit } from "@/lib/audit";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { recomputeCorroboration } from "@/lib/offers/submit";
+import { restoreStandInsOf, yieldStandIn } from "@/lib/offers/standins";
 import type { ReportReason } from "@/generated/prisma/enums";
 import type { StudentModel } from "@/generated/prisma/models";
 
@@ -114,6 +115,22 @@ export async function resolveReports(
 
   const updated = await prisma.offer.update({ where: { id: offerId }, data });
 
+  // A removed offer no longer counts its person, so whatever stood aside for
+  // them stands again; a kept one — including one being un-removed — sends
+  // it back aside. Either way the placement is counted exactly once.
+  const standIns =
+    action === "REMOVE"
+      ? await restoreStandInsOf(prisma, offerId)
+      : (await yieldStandIn(prisma, {
+            id: offer.id,
+            companyId: offer.companyId,
+            batchId: offer.batchId,
+            cycle: offer.cycle,
+            nature: offer.nature,
+          }))
+        ? 1
+        : 0;
+
   await prisma.report.updateMany({
     where: { offerId, status: { in: ["OPEN", "UNDER_REVIEW"] } },
     data: {
@@ -140,6 +157,7 @@ export async function resolveReports(
       verification: updated.verification,
       deletedAt: updated.deletedAt,
       deletedReason: updated.deletedReason,
+      standIns: action === "REMOVE" ? { restored: standIns } : { displaced: standIns },
     },
     summary: `${admin.srn} resolved reports on offer ${offerId} as ${action}.`,
   });
@@ -160,13 +178,22 @@ export async function restoreOffer(
     data: { deletedAt: null, deletedReason: null, verification: "UNVERIFIED" },
   });
 
+  // The person is back on record, so the row that stood for them steps aside.
+  const displaced = await yieldStandIn(prisma, {
+    id: offer.id,
+    companyId: offer.companyId,
+    batchId: offer.batchId,
+    cycle: offer.cycle,
+    nature: offer.nature,
+  });
+
   await recordAudit({
     actorId: admin.id,
     action: "RESTORE",
     entityType: "Offer",
     entityId: offerId,
     before: { deletedAt: offer.deletedAt, deletedReason: offer.deletedReason },
-    after: { deletedAt: null },
+    after: { deletedAt: null, displacedStandIn: displaced },
     summary: `${admin.srn} restored offer ${offerId}.`,
   });
 
