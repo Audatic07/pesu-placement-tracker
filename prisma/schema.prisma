@@ -164,7 +164,10 @@ enum NameVisibility {
 
 enum RecordSource {
   SELF_REPORTED // a student submitted it
-  OFFICIAL_IMPORT // came from the placement sheets / placement cell
+  /// Expanded from a batch's placement sheet — a student-maintained record,
+  /// not a placement-cell publication, despite the name. Such a row is a
+  /// stand-in for a student who has not filed; see lib/offers/standins.ts.
+  OFFICIAL_IMPORT
   ADMIN_ENTERED
 }
 
