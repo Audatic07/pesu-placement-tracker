@@ -775,6 +775,16 @@ model Offer {
   deletedAt     DateTime?
   deletedReason String?
 
+  /// A stand-in is an OFFICIAL_IMPORT row expanded from a sheet's headcount:
+  /// it stands for a student who has not filed. When someone the sheet already
+  /// counted files their own offer for the same company, batch and cycle, one
+  /// stand-in yields to it — soft-deleted, with this pointing at the offer it
+  /// yielded to — because counting both would count the person twice. If that
+  /// offer is later removed, the stand-in returns. See lib/offers/standins.ts.
+  yieldedToId String?
+  yieldedTo   Offer?  @relation("StandInYield", fields: [yieldedToId], references: [id], onDelete: SetNull)
+  displaced   Offer[] @relation("StandInYield")
+
   rounds    InterviewRound[]
   reports   Report[]
   revisions OfferRevision[]
@@ -789,6 +799,7 @@ model Offer {
   @@index([verification])
   @@index([deletedAt])
   @@index([offerDate])
+  @@index([yieldedToId])
 }
 
 /// Every edit snapshots the previous state. Required for the admin

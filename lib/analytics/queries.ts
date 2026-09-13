@@ -403,9 +403,10 @@ export type CompanyTrendPoint = {
  * Now that every season is offer rows, the older years are simply years. They
  * group, count and take a median exactly like the current one. The reason the
  * two arms could not be summed — that a 2026 placement might appear both in the
- * spreadsheet's headcount and in a student's own submission — is now handled
- * where it belongs, in the import itself, rather than by keeping the layers
- * apart forever on screen.
+ * spreadsheet's headcount and in a student's own submission — is handled where
+ * it belongs, at the row: a stand-in expanded from the headcount yields to the
+ * student's own submission (lib/offers/standins.ts), rather than the layers
+ * being kept apart forever on screen.
  */
 export async function getCompanyTrend(companyId: string): Promise<CompanyTrendPoint[]> {
   const offers = await prisma.offer.findMany({

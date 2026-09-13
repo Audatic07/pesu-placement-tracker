@@ -8,6 +8,7 @@ import {
 } from "./lib/companies";
 import { classifyRoleFamily, natureFromHeadcounts, refineNatureFromNote } from "./lib/roles";
 import { expandRoleIntoOffers, loadTaxRegimeFor } from "./lib/offers";
+import { reconcileStandIns } from "@/lib/offers/standins";
 import type { ReviewLog } from "./lib/review";
 import type { ImportedDrive, ImportedWorkbook } from "./sheets/types";
 
@@ -32,6 +33,8 @@ export type LoadResult = {
   rounds: number;
   /** Offer rows expanded from the published headcounts. */
   offers: number;
+  /** Of those, the ones that stepped aside for a student's own submission. */
+  yielded: number;
 };
 
 type CompanyRef = { id: string; name: string };
@@ -510,12 +513,19 @@ export async function loadWorkbook(
     }
   }
 
+  // A fresh expansion stands for everyone the sheet counted, including the
+  // students who have since filed for themselves. Each of those displaces a
+  // stand-in again, so the batch counts each person once whichever way their
+  // placement reached the table. See lib/offers/standins.ts.
+  const yielded = await reconcileStandIns(prisma, batch.id);
+
   const result: LoadResult = {
     companies: resolver.createdCount,
     drives: driveCount,
     roles: roleCount,
     rounds: roundCount,
     offers: offerCount,
+    yielded,
   };
 
   // The import is a consequential write and belongs in the audit trail like
@@ -536,6 +546,7 @@ export async function loadWorkbook(
       summary:
         `Imported the batch of ${parsed.batchYear}: ${result.drives} drives, ${result.roles} roles, ` +
         `${result.offers} offers expanded from published headcounts` +
+        (result.yielded > 0 ? ` (${result.yielded} yielded to students' own submissions)` : "") +
         (staleOffers.count > 0 ? `, replacing ${staleOffers.count} from a prior import` : "") +
         (process.argv.includes("--force") ? " (--force)" : "") +
         ".",

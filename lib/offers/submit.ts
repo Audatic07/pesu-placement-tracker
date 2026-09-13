@@ -8,6 +8,7 @@ import { cgpaBand } from "@/lib/privacy/gate";
 import { deriveCompensation, type TaxRegime } from "@/lib/comp/model";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { normalizeCompanyName, slugify } from "@/lib/companies/name";
+import { yieldStandIn } from "@/lib/offers/standins";
 import type { StudentModel } from "@/generated/prisma/models";
 
 /**
@@ -299,14 +300,25 @@ export async function createOffer(
 
   await recomputeCorroboration(company.id, batch.id, values.cycle);
 
+  // If the batch's sheet already counted this placement, the anonymous row
+  // that stood for it steps aside. See lib/offers/standins.ts.
+  const displaced = await yieldStandIn(prisma, {
+    id: offer.id,
+    companyId: company.id,
+    batchId: batch.id,
+    cycle: values.cycle,
+    nature: values.nature,
+  });
+
   await recordAudit({
     actorId: student.id,
     action: "CREATE",
     entityType: "Offer",
     entityId: offer.id,
+    after: displaced ? { displacedStandIn: displaced } : undefined,
     summary: `${student.srn} recorded an offer at ${values.companyName}${
       outlierNote ? " (flagged as an outlier)" : ""
-    }.`,
+    }${displaced ? ", replacing a row expanded from the batch's sheet" : ""}.`,
   });
 
   return { ok: true, offerId: offer.id, flagged: outlierNote !== null };

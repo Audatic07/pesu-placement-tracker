@@ -48,10 +48,13 @@ there.
 - **One kind of record, collected two ways.** Every batch figure counts one row
   per placement, whether a student filed it here or the batch's own sheet
   recorded it. What the sheet cannot say is identity — IBM placed 88 students,
-  but not who — so those rows carry no student. They count in every figure a
-  live row counts in, but wherever the app reasons about people they are one
-  observation: eighty-eight copies of one published package never flag a
-  student's report as an outlier and never corroborate one.
+  but not who — so those rows carry no student. Each stands in for a student
+  who has not filed, and yields to that student's own submission when it
+  arrives, so a person is counted once whichever way their placement reached
+  the table. They count in every figure a live row counts in, but wherever the
+  app reasons about people they are one observation: eighty-eight copies of
+  one published package never flag a student's report as an outlier and never
+  corroborate one.
 - **Anonymity is structural.** Offers are anonymous by default, exact CGPA is
   banded in public views, and no statistic is shown for a cohort below five
   records — including maximums, which are one person's package wearing a hat.
