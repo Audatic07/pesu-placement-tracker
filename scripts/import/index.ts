@@ -12,7 +12,6 @@ import {
   readScene2024,
   readScene2025,
 } from "./sheets/historical-configs";
-import { buildScene2027 } from "./sheets/scene2027";
 import { loadWorkbook } from "./load";
 import { verifyAgainstFooters } from "./verify";
 import { recomputeDerivedCompensation } from "../../lib/comp/recompute";
@@ -34,14 +33,15 @@ import type { ImportedWorkbook } from "./sheets/types";
  * The finished seasons — 2022 through 2026 — are read from their workbooks.
  * Each `Placement Scene '<yy>.xlsx` is optional: a season whose file is not
  * present is skipped with a note rather than failing the whole run, so the
- * import works from whichever archives a maintainer has to hand. Importing them
- * gives every recruiter a previous-years section and seeds the company list.
+ * import works from whichever archives a maintainer has to hand. Each season
+ * lands as offer rows in the shape a submission produces (see load.ts), so an
+ * archived year reads through the same analytics as a live one.
  *
- * 2027 is different: it is the season being played right now. There is no
- * finished workbook for it, only the short list of companies that have visited
- * so far (scene2027.ts). It is imported as official drives WITHOUT placement
- * counts — the drives are ongoing, so the offer's nature is recorded but no
- * student headcount is invented.
+ * The season being played is deliberately NOT imported, even where a partial
+ * sheet for it exists. A half-finished spreadsheet would seed a live batch with
+ * packages a company advertised and headcounts nobody has confirmed; a batch
+ * nobody has reported on should say so plainly instead. It fills up from
+ * student submissions, and its sheet can be imported once the season is over.
  */
 
 const REVIEW_PATH = resolve("scripts/import/out/import-review.csv");
@@ -49,41 +49,35 @@ const REVIEW_PATH = resolve("scripts/import/out/import-review.csv");
 /** A season and how to obtain its parsed workbook. */
 type Source = {
   batchYear: number;
-  /** null for the in-memory 2027 season. */
-  file: { envVar: string; defaultPath: string } | null;
-  read: (workbook: ExcelJS.Workbook | null, review: ReviewLog) => ImportedWorkbook;
+  file: { envVar: string; defaultPath: string };
+  read: (workbook: ExcelJS.Workbook, review: ReviewLog) => ImportedWorkbook;
 };
 
 const SOURCES: Source[] = [
   {
     batchYear: 2022,
     file: { envVar: "IMPORT_XLSX_2022", defaultPath: "./Placement Scene '22.xlsx" },
-    read: (wb, review) => readScene2022(wb!, review),
+    read: readScene2022,
   },
   {
     batchYear: 2023,
     file: { envVar: "IMPORT_XLSX_2023", defaultPath: "./Placement Scene '23.xlsx" },
-    read: (wb, review) => readScene2023(wb!, review),
+    read: readScene2023,
   },
   {
     batchYear: 2024,
     file: { envVar: "IMPORT_XLSX_2024", defaultPath: "./Placement Scene '24.xlsx" },
-    read: (wb, review) => readScene2024(wb!, review),
+    read: readScene2024,
   },
   {
     batchYear: 2025,
     file: { envVar: "IMPORT_XLSX_2025", defaultPath: "./Placement Scene '25.xlsx" },
-    read: (wb, review) => readScene2025(wb!, review),
+    read: readScene2025,
   },
   {
     batchYear: 2026,
     file: { envVar: "IMPORT_XLSX_2026", defaultPath: "./Placement Scene '26.xlsx" },
-    read: (wb, review) => readScene2026(wb!, review),
-  },
-  {
-    batchYear: 2027,
-    file: null,
-    read: () => buildScene2027(),
+    read: readScene2026,
   },
 ];
 
@@ -131,6 +125,22 @@ function summarise(parsed: ImportedWorkbook): void {
   console.log(`    roles with a stipend  ${withStipend}`);
   console.log(`    interview rounds      ${rounds.length} (${knownMode} with a known online/in-person mode)`);
   console.log(`    comp components       ${components.length}`);
+
+  // Only the colour-coded workbooks carry these; the older sheets encode
+  // nothing in fill, so a line of zeros would say nothing about them.
+  const flagged = {
+    repeat: parsed.drives.filter((d) => d.flags.isRepeatCompany).length,
+    tenPlus: parsed.drives.filter((d) => d.flags.hiredTenPlus).length,
+    mass: parsed.drives.filter((d) => d.flags.massHired).length,
+    nobody: parsed.drives.filter((d) => d.flags.hiredNobody).length,
+    ditched: parsed.drives.filter((d) => d.flags.ditched).length,
+  };
+  if (Object.values(flagged).some((count) => count > 0)) {
+    console.log(
+      `    colour-coded flags    repeat ${flagged.repeat} · hired 10+ ${flagged.tenPlus} · ` +
+        `mass hire ${flagged.mass} · hired nobody ${flagged.nobody} · ditched ${flagged.ditched}`,
+    );
+  }
 }
 
 /**
@@ -147,10 +157,6 @@ async function parseSource(
   review: ReviewLog,
   namedExplicitly: boolean,
 ): Promise<ImportedWorkbook | null> {
-  if (source.file === null) {
-    return source.read(null, review);
-  }
-
   const path = process.env[source.file.envVar] ?? source.file.defaultPath;
   const resolved = resolve(path);
   if (!existsSync(resolved)) {
@@ -239,13 +245,18 @@ async function main() {
           : " (no tax configuration found, so no take-home estimates)"),
     );
 
-    // Only the 2026 workbook carries a self-computed footer to check against.
-    // The older sheets and the in-memory 2027 season have no footer totals, so
-    // there is nothing to re-derive for them — their fidelity rests on the
-    // review log and a manual read, as documented on each reader.
+    // Every season is verified, not only the one with a footer. Only the 2026
+    // workbook publishes totals to re-derive, so the older sheets get "?" for
+    // each footer check — but the headcount-versus-offer-rows check compares
+    // the database with itself and needs no footer. It is the one fidelity
+    // check those seasons have, and skipping the whole report for them would
+    // have silently skipped it.
     for (const parsed of parsedWorkbooks) {
-      if (parsed.footers.length === 0) continue;
-      console.log(`\nVerifying batch ${parsed.batchYear} against the sheet's own totals…`);
+      console.log(
+        parsed.footers.length > 0
+          ? `\nVerifying batch ${parsed.batchYear} against the sheet's own totals…`
+          : `\nVerifying batch ${parsed.batchYear} against its own headcounts (the sheet publishes no totals)…`,
+      );
       const report = await verifyAgainstFooters(prisma, parsed);
       console.log(report.text);
       if (!report.allMatched) allVerified = false;
