@@ -150,6 +150,39 @@ describe("expandRoleIntoOffers", () => {
     expect(written.offers[0]!.roleTitle).toBe("Unspecified role");
   });
 
+  it("gives every expanded row its own copy of the drive role's rounds", async () => {
+    const { prisma, written } = fakePrisma();
+    const rounds = [
+      {
+        kind: "ONLINE_ASSESSMENT",
+        mode: "ONLINE",
+        sequence: 1,
+        heldOn: new Date("2025-09-01T00:00:00Z"),
+        heldUntil: null,
+        rawSchedule: null,
+      },
+      {
+        kind: "TECHNICAL_INTERVIEW",
+        mode: "UNKNOWN",
+        sequence: 2,
+        heldOn: null,
+        heldUntil: null,
+        rawSchedule: "TBD",
+      },
+    ] as ImportedRole["rounds"];
+
+    await expandRoleIntoOffers(prisma, args(role({ placedFte: 2, rounds })));
+
+    // The season page dates a company by the earliest round anyone recorded.
+    // Without these, an imported season has no dates at all.
+    for (const offer of written.offers) {
+      const nested = offer.rounds as { create: Array<Record<string, unknown>> };
+      expect(nested.create).toHaveLength(2);
+      expect(nested.create[0]).toMatchObject({ kind: "ONLINE_ASSESSMENT", sequence: 1 });
+      expect(nested.create[1]).toMatchObject({ kind: "TECHNICAL_INTERVIEW", rawSchedule: "TBD" });
+    }
+  });
+
   it("records the placement as accepted and leaves it unflagged", async () => {
     const { prisma, written } = fakePrisma();
 

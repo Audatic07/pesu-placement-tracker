@@ -183,6 +183,24 @@ export async function expandRoleIntoOffers(
             // these rows neither gain nor grant confidence.
             verification: "UNVERIFIED",
             isOutlierFlagged: false,
+
+            // A submission carries the rounds its student sat, and that is
+            // where every date on the season page comes from. The sheet
+            // records the same rounds against the drive, so each expanded row
+            // gets its own copy — otherwise a whole imported season reads as
+            // "no date reported" while its schedule sits one table away on
+            // the DriveRole. The PPT is a drive-level talk, not a round anyone
+            // sat, and stays on the drive.
+            rounds: {
+              create: role.rounds.map((round) => ({
+                sequence: round.sequence,
+                kind: round.kind,
+                mode: round.mode,
+                heldOn: round.heldOn,
+                heldUntil: round.heldUntil,
+                rawSchedule: round.rawSchedule,
+              })),
+            },
           },
         });
       });
