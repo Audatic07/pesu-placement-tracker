@@ -35,7 +35,7 @@ import type {
  * failure rather than a database full of stipends in the CTC field.
  */
 
-type ColumnLayout = {
+export type ColumnLayout = {
   company: number;
   role: number;
   eligibleBranches: number | null;
@@ -52,7 +52,7 @@ type ColumnLayout = {
   note: number;
 };
 
-type TabSpec = {
+export type TabSpec = {
   sheet: string;
   /** First row containing data. */
   firstDataRow: number;
@@ -737,19 +737,60 @@ function readFooter(
   return stats;
 }
 
-export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
-  const batchYear = 2026;
-  const window = seasonWindowForBatch(batchYear);
+/** How to read one workbook in the colour-coded "Placement Scene" format. */
+export type ColourWorkbookSpec = {
+  batchYear: number;
+  tabs: TabSpec[];
+  /**
+   * Whether to collect each tab's own footer totals for verification. True for
+   * 2026, whose tabs carry the full navy summary block; false for a sheet whose
+   * footer is absent or too sparse to check against, so its fidelity rests on
+   * the review log instead.
+   */
+  emitFooters: boolean;
+  /** Passed straight through to the loader — see ImportedWorkbook. */
+  deriveTierFromCtc: boolean;
+};
+
+/**
+ * Reads any workbook in the "Placement Scene" colour-coded format: merged
+ * company blocks, meaning encoded in cell fill, and per-tab column layouts
+ * declared as TabSpecs.
+ *
+ * 2026 is its only caller today. It is a shared reader rather than 2026's own
+ * because that season is not the last one to use this format — the workbook is
+ * a template the placement cohort keeps reusing, and a second season reading it
+ * should differ only in its TabSpecs and whether a verifiable footer exists.
+ */
+export function readColourCodedWorkbook(
+  workbook: Workbook,
+  spec: ColourWorkbookSpec,
+  review: ReviewLog,
+): ImportedWorkbook {
+  const window = seasonWindowForBatch(spec.batchYear);
 
   const drives: ImportedDrive[] = [];
   const footers: SheetFooterStats[] = [];
 
-  for (const spec of TABS) {
-    const result = readTab(workbook, spec, window, review);
+  for (const tab of spec.tabs) {
+    const result = readTab(workbook, tab, window, review);
     drives.push(...result.drives);
-    footers.push(result.footer);
+    if (spec.emitFooters) footers.push(result.footer);
   }
 
+  return {
+    batchYear: spec.batchYear,
+    drives,
+    footers,
+    deriveTierFromCtc: spec.deriveTierFromCtc,
+  };
+}
+
+export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
   // Tiers come from the tabs. A role with no tier here has none by design.
-  return { batchYear, drives, footers, deriveTierFromCtc: false };
+  return readColourCodedWorkbook(
+    workbook,
+    { batchYear: 2026, tabs: TABS, emitFooters: true, deriveTierFromCtc: false },
+    review,
+  );
 }
