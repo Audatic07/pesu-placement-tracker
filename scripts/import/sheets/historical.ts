@@ -4,6 +4,7 @@ import type {
   OfferCycle,
   RoundKind,
 } from "@/generated/prisma/enums";
+import { cellText } from "../lib/cells";
 import { parseSheetDate, seasonWindowForBatch, type SeasonWindow } from "../lib/dates";
 import { parseAmountCell, parseCompensationNote } from "../lib/compensation";
 import { parseGpaCutoff } from "../lib/gpa";
@@ -83,43 +84,6 @@ export type HistoricalConfig = {
   batchYear: number;
   tabs: HistoricalTab[];
 };
-
-/** A readable string form of any cell value, mirroring scene2026's cellText. */
-function cellText(cell: Cell): string | null {
-  const value = cell.value;
-  if (value === null || value === undefined) return null;
-
-  const fromRichText = (candidate: unknown): string | null => {
-    if (candidate === null || typeof candidate !== "object") return null;
-    if (!("richText" in candidate)) return null;
-    const runs = (candidate as { richText?: unknown }).richText;
-    if (!Array.isArray(runs)) return null;
-    const text = runs.map((run) => (run as { text?: string }).text ?? "").join("");
-    return text.trim() || null;
-  };
-
-  if (typeof value === "object" && !(value instanceof Date)) {
-    const direct = fromRichText(value);
-    if (direct !== null) return direct;
-    if ("text" in value) {
-      const inner = (value as { text?: unknown }).text;
-      if (typeof inner === "string") return inner.trim() || null;
-      const nested = fromRichText(inner);
-      if (nested !== null) return nested;
-    }
-    if ("result" in value) {
-      const result = (value as { result?: unknown }).result;
-      return result === null || result === undefined ? null : String(result).trim() || null;
-    }
-    if ("error" in value) return null;
-  }
-
-  if (value instanceof Date) return value.toISOString();
-
-  const text = String(value).replace(/\u00a0/g, " ").trim();
-  if (!text || text === "[object Object]") return null;
-  return text;
-}
 
 /**
  * Counts students from a headcount cell. "0" is a real answer (ran a process,
