@@ -135,25 +135,27 @@ export function TextArea({
   label,
   name,
   hint,
+  error,
   rows = 4,
   placeholder,
 }: {
   label: string;
   name: string;
   hint?: ReactNode;
+  error?: string;
   rows?: number;
   placeholder?: string;
 }) {
   const id = useId();
   return (
-    <Field label={label} hint={hint} htmlFor={id}>
+    <Field label={label} hint={hint} error={error} htmlFor={id}>
       <textarea
         id={id}
         name={name}
         rows={rows}
         placeholder={placeholder}
         className="w-full rounded-[var(--radius-control)] px-2 py-1.5 text-[13px] leading-relaxed outline-none"
-        style={controlStyle()}
+        style={controlStyle(Boolean(error))}
       />
     </Field>
   );
