@@ -15,6 +15,7 @@ import {
 } from "@/components/forms/fields";
 import { formatLpa } from "@/components/ui/primitives";
 import type { QuotaState } from "@/lib/policy/quota";
+import { isValidatedField, validateField, type FieldErrors } from "@/lib/offers/validate";
 
 /**
  * The submission form.
@@ -136,6 +137,55 @@ export function OfferForm({
     if (state.error) draft.markFailed();
   }, [state, draft]);
 
+  // Checked as they are typed, against the schema the action validates with.
+  // The inputs stay uncontrolled: the handlers below read the changed control
+  // off the event and keep only the verdicts. A required field is judged on
+  // blur, so an empty form does not open covered in red; a number is judged on
+  // every keystroke, because "11" in the CGPA box is wrong the moment it is
+  // there. The server still decides — see lib/offers/validate.ts.
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  const judge = (target: EventTarget | null, form: HTMLFormElement, typing: boolean) => {
+    if (
+      !(target instanceof HTMLInputElement) &&
+      !(target instanceof HTMLTextAreaElement) &&
+      !(target instanceof HTMLSelectElement)
+    ) {
+      return;
+    }
+    const { name } = target;
+    if (!isValidatedField(name)) return;
+
+    const repeated = form.querySelectorAll(`[name="${name}"]`);
+    const key = repeated.length > 1 ? `${name}:${[...repeated].indexOf(target)}` : name;
+    const ctcLpa = (form.elements.namedItem("ctcLpa") as HTMLInputElement | null)?.value;
+
+    setFieldErrors((current) => {
+      const next = { ...current };
+      const verdict = (forName: typeof name, forKey: string, value: string, wasTyping: boolean) => {
+        const isText = forName === "companyName" || forName === "roleTitle";
+        // Typing into a required text field only ever clears its error.
+        if (isText && wasTyping && !next[forKey]) return;
+        const message = validateField(forName, value, { ctcLpa });
+        if (message) next[forKey] = message;
+        else delete next[forKey];
+      };
+      verdict(name, key, target.value, typing);
+      // The base is judged against the CTC, so a change to the CTC re-judges it.
+      if (name === "ctcLpa") {
+        const base = form.elements.namedItem("baseLpa") as HTMLInputElement | null;
+        if (base) verdict("baseLpa", "baseLpa", base.value, false);
+      }
+      return next;
+    });
+  };
+
+  /** A live verdict wins over the server's, which is stale once the field changes. */
+  const errorFor = (key: string): string | undefined =>
+    fieldErrors[key] ?? (state.field === key ? state.error : undefined);
+
+  const liveErrorCount = Object.keys(fieldErrors).length;
+
   const available = quota.slots.filter((slot) => slot.remaining > 0);
   const exhausted = quota.slots.filter((slot) => slot.remaining === 0);
 
@@ -155,8 +205,12 @@ export function OfferForm({
     <form
       ref={formRef}
       action={formAction}
-      onInput={draft.save}
+      onInput={(event) => {
+        draft.save();
+        judge(event.target, event.currentTarget, true);
+      }}
       onChange={draft.save}
+      onBlur={(event) => judge(event.target, event.currentTarget, false)}
       onSubmit={draft.markSubmitted}
       className="flex flex-col gap-4"
     >
@@ -212,7 +266,7 @@ export function OfferForm({
           list="company-suggestions"
           placeholder="Start typing…"
           autoComplete="off"
-          error={state.field === "companyName" ? state.error : undefined}
+          error={errorFor("companyName")}
           hint="Pick an existing name where one matches, so this joins up with previous years."
         />
         <datalist id="company-suggestions">
@@ -221,7 +275,13 @@ export function OfferForm({
           ))}
         </datalist>
 
-        <TextInput label="Role title" name="roleTitle" required placeholder="e.g. SDE 1" />
+        <TextInput
+          label="Role title"
+          name="roleTitle"
+          required
+          placeholder="e.g. SDE 1"
+          error={errorFor("roleTitle")}
+        />
 
         <Select
           label="Kind of offer"
@@ -270,6 +330,7 @@ export function OfferForm({
           min="0"
           placeholder="e.g. 18.5"
           hint="The headline figure."
+          error={errorFor("ctcLpa")}
         />
         <TextInput
           label="Fixed base (LPA)"
@@ -278,6 +339,7 @@ export function OfferForm({
           step="0.01"
           min="0"
           hint="What lands every month, before variable pay."
+          error={errorFor("baseLpa")}
         />
         <TextInput
           label="Stipend (₹ per month)"
@@ -286,6 +348,7 @@ export function OfferForm({
           step="1000"
           min="0"
           hint="For internships."
+          error={errorFor("stipendPerMonthInr")}
         />
       </FormSection>
 
@@ -295,13 +358,20 @@ export function OfferForm({
         columns={1}
       >
         <div className="flex flex-col gap-2">
-          {componentRows.map((row) => (
+          {componentRows.map((row, index) => (
             <div key={row} className="flex items-end gap-2">
               <div className="flex-1">
                 <Select label="Component" name="componentKind" options={COMPONENT_KINDS} />
               </div>
               <div className="w-32">
-                <TextInput label="LPA" name="componentAmount" type="number" step="0.01" min="0" />
+                <TextInput
+                  label="LPA"
+                  name="componentAmount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  error={errorFor(componentRows.length > 1 ? `componentAmount:${index}` : "componentAmount")}
+                />
               </div>
               <label
                 className="flex h-[30px] items-center gap-1.5 whitespace-nowrap text-[12px]"
@@ -340,14 +410,30 @@ export function OfferForm({
         description="Shown in bands, never exactly, and never next to your name unless you choose to be named. This is what makes 'does CGPA actually matter' answerable."
         columns={3}
       >
-        <TextInput label="CGPA" name="cgpa" type="number" step="0.01" min="0" max="10" />
-        <TextInput label="Active backlogs" name="backlogsAtOffer" type="number" min="0" step="1" />
+        <TextInput
+          label="CGPA"
+          name="cgpa"
+          type="number"
+          step="0.01"
+          min="0"
+          max="10"
+          error={errorFor("cgpa")}
+        />
+        <TextInput
+          label="Active backlogs"
+          name="backlogsAtOffer"
+          type="number"
+          min="0"
+          step="1"
+          error={errorFor("backlogsAtOffer")}
+        />
         <TextInput
           label="Internships before this"
           name="priorInternshipCount"
           type="number"
           min="0"
           step="1"
+          error={errorFor("priorInternshipCount")}
         />
       </FormSection>
 
@@ -421,12 +507,14 @@ export function OfferForm({
           name="processNotes"
           rows={6}
           placeholder="What they asked, what caught you out, how long between rounds, anything you wish you had known."
+          error={errorFor("processNotes")}
         />
         <TextArea
           label="What you prepared with"
           name="preparationResources"
           rows={3}
           placeholder="Sheets, books, courses, past questions."
+          error={errorFor("preparationResources")}
         />
       </FormSection>
 
@@ -445,6 +533,7 @@ export function OfferForm({
             max="10"
             placeholder="e.g. 8.5"
             hint="Leave blank if it was resume-based or never stated."
+            error={errorFor("announcedCgpaCutoff")}
           />
           <Select
             label="Overall difficulty"
@@ -496,6 +585,7 @@ export function OfferForm({
           min="0"
           step="1"
           hint="In months. 0 or blank if there is none."
+          error={errorFor("bondMonths")}
         />
         <TextInput
           label="Internship length"
@@ -504,6 +594,7 @@ export function OfferForm({
           min="0"
           step="1"
           hint="In months, where the offer includes one."
+          error={errorFor("internshipDurationMonths")}
         />
       </FormSection>
 
@@ -523,8 +614,13 @@ export function OfferForm({
 
       <div className="flex items-center gap-3">
         <Submit />
-        <span className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-          You can edit or remove this afterwards.
+        <span
+          className="text-[12px]"
+          style={{ color: liveErrorCount > 0 ? "var(--critical)" : "var(--text-tertiary)" }}
+        >
+          {liveErrorCount > 0
+            ? `${liveErrorCount} ${liveErrorCount === 1 ? "field needs" : "fields need"} a look before this can be recorded.`
+            : "You can edit or remove this afterwards."}
         </span>
       </div>
     </form>
