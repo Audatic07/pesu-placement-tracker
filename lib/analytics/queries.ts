@@ -7,6 +7,7 @@ import {
   type ObservationFilters,
 } from "./observations";
 import { histogram, mean, median, percentile, standardDeviation, type Bucket } from "./stats";
+import { computeOutlook, type CgpaOutlook } from "./outlook";
 
 /**
  * The aggregation layer.
@@ -478,6 +479,44 @@ export async function getCgpaVersusPackage(
       cgpa: Number(offer.cgpa),
       ctcLpa: Number(offer.compensation!.ctcLpa),
     })),
+  );
+}
+
+/**
+ * What the batch's records say about one CGPA: the announced bars it clears,
+ * and what people at that CGPA reported getting. Built from the same rows as
+ * the two panels above it — the bars from getAnnouncedCutoffs, the points
+ * from the CGPA-against-package set — and gated the same way. See
+ * lib/analytics/outlook for the reading itself.
+ */
+export async function getCgpaOutlook(batchYear: number, cgpa: number): Promise<CgpaOutlook> {
+  const [batch, bars, offers] = await Promise.all([
+    prisma.batch.findUnique({
+      where: { year: batchYear },
+      include: { tierConfigs: { orderBy: { rank: "asc" } } },
+    }),
+    getAnnouncedCutoffs(batchYear),
+    prisma.offer.findMany({
+      where: {
+        batch: { year: batchYear },
+        deletedAt: null,
+        verification: { notIn: ["DISPUTED", "REMOVED"] },
+        cgpa: { not: null },
+        compensation: { ctcLpa: { not: null } },
+      },
+      select: { cgpa: true, tierKey: true, compensation: { select: { ctcLpa: true } } },
+    }),
+  ]);
+
+  return computeOutlook(
+    cgpa,
+    bars,
+    offers.map((offer) => ({
+      cgpa: Number(offer.cgpa),
+      ctcLpa: Number(offer.compensation!.ctcLpa),
+      tierKey: offer.tierKey,
+    })),
+    (batch?.tierConfigs ?? []).map((tier) => ({ key: tier.key, label: tier.label, rank: tier.rank })),
   );
 }
 
