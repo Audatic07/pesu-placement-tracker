@@ -25,6 +25,9 @@ const SOURCE: Record<string, { label: string; tone: Tone }> = {
   visited: { label: "No offers", tone: "neutral" },
 };
 
+/** The facet's values before every season became offer rows. */
+const LEGACY_SOURCE: Record<string, string | undefined> = { students: "placed", imported: "visited" };
+
 const CYCLE: Record<string, string> = {
   SUMMER_INTERNSHIP: "Summer",
   SIX_MONTH_INTERNSHIP: "Internship",
@@ -69,7 +72,10 @@ export default async function CompaniesPage({
     tierKeys: list(params["tier"]),
     branchCodes: list(params["branch"]),
     cycles: list(params["cycle"]) as never,
-    sources: list(params["source"]) as never,
+    // "students" / "imported" were this facet's values before every season
+    // became offer rows. Any view here is a link someone may have sent, so the
+    // old spellings keep resolving to the outcome they described.
+    sources: list(params["source"])?.map((value) => LEGACY_SOURCE[value] ?? value) as never,
     sort,
     direction: params["dir"] === "asc" ? "asc" : "desc",
     page: Number.parseInt(params["page"] ?? "1", 10) || 1,
@@ -262,7 +268,7 @@ export default async function CompaniesPage({
           },
           {
             param: "source",
-            label: "Source",
+            label: "Outcome",
             options: result.facets.sources.map((source) => ({
               key: source.key,
               label: SOURCE[source.key]?.label ?? source.key,

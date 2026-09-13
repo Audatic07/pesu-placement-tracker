@@ -98,7 +98,7 @@ export default async function OverviewPage({
         title="Overview"
         description={`How the batch of ${batchYear} is doing, from ${formatCount(
           overview.reportCount,
-        )} ${overview.reportCount === 1 ? "offer" : "offers"} students recorded themselves. Nothing here is drawn from the old placement sheets.`}
+        )} ${overview.reportCount === 1 ? "offer" : "offers"} on record — one row per placement, whether a student filed it here or the batch's own placement sheet recorded it.`}
         actions={
           <Button href="/submit" variant="primary">
             Add yours
@@ -155,7 +155,7 @@ export default async function OverviewPage({
 
           <Panel
             title="Most reported recruiters"
-            description="How many people filed, not how many a company hired — those are different numbers and only the first one is knowable here."
+            description="Offers on record per company: the people who filed here, or the headcount the batch's sheet published — the same count, collected two different ways."
             padded={false}
             actions={
               <Link

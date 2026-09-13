@@ -17,12 +17,15 @@ paid over four to five years, and another at 26 LPA of which 8 lakhs is meals
 and transport. The app separates headline CTC, first-year cash, recurring cash
 and an estimated take-home, and shows the gap between them.
 
-**One live source, one archive, never averaged together.** Every batch figure
-counts one row per person who filed. Imported spreadsheet history is aggregate —
-it records that a company placed 88 students, but not who, and at a package the
-company advertised rather than one anyone confirmed receiving. Mixing the two
-would answer "what did students get" with "what did companies publish", so the
-archive is shown beside live figures and labelled, never summed into them.
+**One kind of record, collected two ways.** Every batch figure counts one row
+per placement. For a live season that row is a student's own submission. For a
+finished season it comes from the batch's placement sheet — a spreadsheet the
+students themselves maintained, so its rows are the same kind of evidence as a
+submission. The import expands "placed 88" into 88 offer rows with no owning
+student: the sheet says how many, not who. They count in every figure a
+submission counts in. What they never do is vote more than once where the app
+reasons about people: outlier detection and corroboration treat an expanded
+headcount as one observation, not eighty-eight.
 
 **Anonymity is structural, not a checkbox.** Offers are anonymous by default,
 exact CGPA is banded in public views, and no statistic is shown for a cohort
@@ -106,16 +109,18 @@ companies.
 
 ## Importing the historical spreadsheet
 
-`npm run import:excel` reads the 2026 workbook named in `.env`. It contains real
-student placement data and is **not** in this repository, and neither are
-screenshots of it. The importer is a one-off cold start: it seeds the company
-list and gives each recruiter a previous-years section on its profile.
+`npm run import:excel` reads the workbooks named in `.env`. They contain real
+student placement data and are **not** in this repository, and neither are
+screenshots of them. The importer lands each finished season in the shape a
+submission produces: every published headcount becomes that many offer rows,
+each with `studentId = null` and `source = OFFICIAL_IMPORT`, so an archived
+year renders through the same analytics as a live one. Re-running it replaces
+the previous run's rows and never touches a student's own submission.
 
-**Only the finished season is imported.** 2026 is over and its spreadsheet is
-the archive, so it is shown as history — labelled, and never summed into a live
-batch's figures. 2027 onwards start empty and fill up from student submissions
-alone, because a half-finished sheet would seed a live batch with headcounts a
-company published rather than outcomes a student confirmed.
+**Only finished seasons are imported.** A season still being played starts
+empty and fills up from student submissions alone, because a half-finished
+sheet would seed a live batch with headcounts a company published rather than
+outcomes a student confirmed.
 
 ## Commands
 

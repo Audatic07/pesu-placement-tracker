@@ -250,8 +250,8 @@ export default async function CompanyPage({
 
         {company.offers.length > 0 ? (
           <Panel
-            title="Reported by students"
-            description="Each one opens the full offer — the package broken down, the rounds, and the notes on the process."
+            title="Offers on record"
+            description="One row per placement, filed here or carried over from the batch's sheet. Each opens the full offer — the package broken down, the rounds, and any notes on the process."
             padded={false}
           >
             <ul>
@@ -308,10 +308,10 @@ export default async function CompanyPage({
             className="flex items-baseline gap-2 pt-1 text-[11px] font-medium uppercase tracking-[0.06em]"
             style={{ color: "var(--text-tertiary)" }}
           >
-            Imported history
+            Drives on record
             <span className="text-[12px] font-normal normal-case tracking-normal">
-              From the placement spreadsheets, kept as context. Company-level: a headcount, not
-              people. None of it feeds the batch statistics.
+              What the placement sheet recorded about each visit: the package advertised, the
+              schedule, and how it ended. The placements themselves are the offers above.
             </span>
           </div>
         ) : null}
