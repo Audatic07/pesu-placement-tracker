@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { submitOffer, type SubmitState } from "./actions";
+import { rowCount, useDraft, type DraftFields } from "./use-draft";
 import {
   Checkbox,
   Field,
@@ -105,14 +106,34 @@ export function OfferForm({
   quota,
   companySuggestions,
   branches,
+  draftKey,
 }: {
   quota: QuotaState;
   companySuggestions: string[];
   branches: Array<{ code: string; name: string }>;
+  /** Scopes the unsent draft to this student and batch. */
+  draftKey: string;
 }) {
   const [state, formAction] = useActionState<SubmitState, FormData>(submitOffer, {});
   const [componentRows, setComponentRows] = useState<number[]>([0]);
   const [roundRows, setRoundRows] = useState<number[]>([0, 1]);
+
+  // The draft restores as many rows as it was saved with; the values land in
+  // them on the render after. See use-draft.ts.
+  const formRef = useRef<HTMLFormElement>(null);
+  const restoreRows = useCallback((fields: DraftFields) => {
+    const components = rowCount(fields, "componentKind");
+    const rounds = rowCount(fields, "roundKind");
+    if (components > 0) setComponentRows(Array.from({ length: components }, (_, i) => i));
+    if (rounds > 0) setRoundRows(Array.from({ length: rounds }, (_, i) => i));
+  }, []);
+  const draft = useDraft(formRef, draftKey, restoreRows);
+
+  // A refused submission leaves the student on the form with their answers in
+  // front of them; the draft has to outlive it.
+  useEffect(() => {
+    if (state.error) draft.markFailed();
+  }, [state, draft]);
 
   const available = quota.slots.filter((slot) => slot.remaining > 0);
   const exhausted = quota.slots.filter((slot) => slot.remaining === 0);
@@ -130,8 +151,41 @@ export function OfferForm({
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form
+      ref={formRef}
+      action={formAction}
+      onInput={draft.save}
+      onChange={draft.save}
+      onSubmit={draft.markSubmitted}
+      className="flex flex-col gap-4"
+    >
       <input type="hidden" name="batchYear" value={quota.batchYear} />
+
+      {draft.restoredAt !== null ? (
+        <p
+          className="flex items-center gap-3 rounded-[var(--radius-control)] px-3 py-2 text-[12px]"
+          style={{ background: "var(--panel)", color: "var(--text-secondary)", boxShadow: "inset 0 0 0 1px var(--line)" }}
+        >
+          <span className="flex-1">
+            Picked up where you left off on{" "}
+            {new Date(draft.restoredAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.
+            Nothing has been sent yet.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              draft.discard();
+              formRef.current?.reset();
+              setComponentRows([0]);
+              setRoundRows([0, 1]);
+            }}
+            className="shrink-0"
+            style={{ color: "var(--accent)" }}
+          >
+            Start over
+          </button>
+        </p>
+      ) : null}
 
       {state.error ? (
         <p
