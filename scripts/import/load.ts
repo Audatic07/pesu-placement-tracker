@@ -510,11 +510,37 @@ export async function loadWorkbook(
     }
   }
 
-  return {
+  const result: LoadResult = {
     companies: resolver.createdCount,
     drives: driveCount,
     roles: roleCount,
     rounds: roundCount,
     offers: offerCount,
   };
+
+  // The import is a consequential write and belongs in the audit trail like
+  // every other one. `createOffer` records one CREATE per offer with the student
+  // as actor; an expansion has no actor and its rows are one published figure
+  // repeated, so the honest unit here is the run: one IMPORT entry per batch,
+  // carrying what was replaced and what was written. `recordAudit` is not used
+  // because it is `server-only` and reads request headers; this is the same
+  // row, written without either.
+  await prisma.auditLog.create({
+    data: {
+      actorId: null,
+      action: "IMPORT",
+      entityType: "Batch",
+      entityId: batch.id,
+      before: { importedOffers: staleOffers.count, importedDrives: priorDrives.length },
+      after: { batchYear: parsed.batchYear, ...result },
+      summary:
+        `Imported the batch of ${parsed.batchYear}: ${result.drives} drives, ${result.roles} roles, ` +
+        `${result.offers} offers expanded from published headcounts` +
+        (staleOffers.count > 0 ? `, replacing ${staleOffers.count} from a prior import` : "") +
+        (process.argv.includes("--force") ? " (--force)" : "") +
+        ".",
+    },
+  });
+
+  return result;
 }
