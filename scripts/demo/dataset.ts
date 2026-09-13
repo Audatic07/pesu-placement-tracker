@@ -949,18 +949,28 @@ function buildOffer(
 /**
  * Assigns planned offers to students without ever exceeding what the submission
  * policy allows — one summer internship, three six-month internships, three
- * full-time offers and only one per tier. The runner re-checks all of this
- * against the database anyway; getting it right here is what keeps the run from
- * being mostly rejections.
+ * full-time offers, only one per tier, and never a tier below one already
+ * held. The runner re-checks all of this against the database anyway; getting
+ * it right here is what keeps the run from being mostly rejections.
  */
 function assign(plans: Plan[]): DummySubmission[] {
-  type Usage = { summer: number; sixMonth: number; fullTime: number; tiers: Set<string> };
+  type Usage = {
+    summer: number;
+    sixMonth: number;
+    fullTime: number;
+    tiers: Set<string>;
+    /** Rank of the best tier held; 1 is the top. Infinity until something tiered lands. */
+    bestRank: number;
+  };
   const usage: Usage[] = STUDENTS.map(() => ({
     summer: 0,
     sixMonth: 0,
     fullTime: 0,
     tiers: new Set<string>(),
+    bestRank: Infinity,
   }));
+
+  const TIER_RANK: Record<string, number> = { TIER_1: 1, TIER_2: 2, TIER_3: 3 };
 
   /**
    * The tier the server will derive, which for an outlier row is NOT the tier
@@ -981,7 +991,11 @@ function assign(plans: Plan[]): DummySubmission[] {
     const use = usage[index]!;
     if (plan.cycle === "SUMMER_INTERNSHIP") return use.summer < 1;
     if (plan.cycle === "SIX_MONTH_INTERNSHIP") return use.sixMonth < 3;
-    return use.fullTime < 3 && !use.tiers.has(tierOf(plan));
+    const tier = tierOf(plan);
+    // A higher offer closes the tiers below it, so a Tier 3 plan cannot go to
+    // someone already holding Tier 1. Untiered plans are never closed out.
+    const rank = TIER_RANK[tier] ?? Infinity;
+    return use.fullTime < 3 && !use.tiers.has(tier) && rank <= use.bestRank;
   };
 
   const take = (index: number, plan: Plan): void => {
@@ -990,7 +1004,9 @@ function assign(plans: Plan[]): DummySubmission[] {
     else if (plan.cycle === "SIX_MONTH_INTERNSHIP") use.sixMonth += 1;
     else {
       use.fullTime += 1;
-      use.tiers.add(tierOf(plan));
+      const tier = tierOf(plan);
+      use.tiers.add(tier);
+      use.bestRank = Math.min(use.bestRank, TIER_RANK[tier] ?? Infinity);
     }
   };
 

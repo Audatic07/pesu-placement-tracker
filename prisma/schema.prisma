@@ -296,6 +296,14 @@ model SubmissionPolicy {
   maxFullTimePerTier     Int @default(1)
   maxFullTimeTotal       Int @default(3)
 
+  /// Once a student holds an offer in a tier, offers in every lower tier are
+  /// refused. The per-tier and per-cycle caps alone let one student record a
+  /// full-time offer in each of the three tiers in any order, which is not a
+  /// state the placement rules allow: a higher offer closes the tiers below
+  /// it. Internships count when their package puts them in a tier; an offer
+  /// with no package has no tier and neither opens nor closes anything.
+  closeLowerTiers Boolean @default(true)
+
   /// Human-readable statement of the rule, shown in the submission UI so
   /// students see the same wording the engine enforces.
   description String?

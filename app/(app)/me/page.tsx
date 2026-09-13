@@ -81,6 +81,12 @@ export default async function MePage() {
               <Quota label="Internships" used={used.internship} max={policy.maxSixMonthInternships} />
               <Quota label="Full-time offers" used={used.fullTime} max={policy.maxFullTimeTotal} />
             </ul>
+            {policy.closeLowerTiers ? (
+              <p className="mt-3 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+                Once you hold an offer in a tier, the tiers below it are closed — a later offer whose
+                package lands lower will be refused.
+              </p>
+            ) : null}
           </Panel>
         ) : null}
 

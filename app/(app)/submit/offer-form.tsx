@@ -12,6 +12,7 @@ import {
   TextArea,
   TextInput,
 } from "@/components/forms/fields";
+import { formatLpa } from "@/components/ui/primitives";
 import type { QuotaState } from "@/lib/policy/quota";
 
 /**
@@ -200,7 +201,11 @@ export function OfferForm({
 
       <FormSection
         title="The money"
-        description="The headline number on its own hides a lot. Breaking it down is what lets everyone see how much of a package is actually cash — and your tier is worked out from the CTC, not chosen."
+        description={
+          quota.tierFloor
+            ? `The headline number on its own hides a lot. Breaking it down is what lets everyone see how much of a package is actually cash — and your tier is worked out from the CTC, not chosen. You already hold a ${quota.tierFloor.label} offer, which closes the tiers below it: a CTC under ${formatLpa(quota.tierFloor.minCtcLpa)} lands in a lower tier and will be refused.`
+            : "The headline number on its own hides a lot. Breaking it down is what lets everyone see how much of a package is actually cash — and your tier is worked out from the CTC, not chosen."
+        }
         columns={3}
       >
         <TextInput
