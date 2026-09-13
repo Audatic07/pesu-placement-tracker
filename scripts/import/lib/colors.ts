@@ -22,6 +22,15 @@ import type { RoundMode } from "@/generated/prisma/enums";
  *
  * Only the first row of a merged company block carries the fill; continuation
  * rows come back with pattern "none". Read the colour at the block start.
+ *
+ * The palette above is 2026's. It is NOT the format's — each cohort restyles
+ * the template, so which colour carries which meaning is a property of one
+ * workbook and is declared per season as a `CompanyPalette`. 2027 keeps the
+ * round colours and the navy footer but repaints every company flag, and one of
+ * its repaints is a trap: black is "information not available" there, where here
+ * it means a company ran a process and hired nobody. Same swatch, opposite
+ * claim — one is an absence of knowledge and the other is knowledge of an
+ * absence, and `load.ts` turns the second into an outcome of NO_HIRES.
  */
 
 export const FILL = {
@@ -36,8 +45,33 @@ export const FILL = {
   WHITE: "FFFFFFFF",
 } as const;
 
-/** The theme index the workbook uses for "didn't proceed with hiring". */
+/** The theme index the 2026 workbook uses for "didn't proceed with hiring". */
 export const DITCHED_THEME = 5;
+
+/**
+ * Which fill means what, for one workbook.
+ *
+ * Every field is nullable because a season only flags what it chose to flag: a
+ * null is "this workbook has no colour for that", and nothing is then flagged
+ * with it. That is different from picking a colour the sheet does not use, which
+ * would quietly flag whatever happened to share the swatch.
+ */
+export type CompanyPalette = {
+  repeatCompany: string | null;
+  hiredTenPlus: string | null;
+  massHired: string | null;
+  /** Ran a process and hired nobody. Never map "we don't know" to this. */
+  hiredNobody: string | null;
+  ditched: { argb: string | null; theme: number | null };
+};
+
+export const PALETTE_2026: CompanyPalette = {
+  repeatCompany: FILL.REPEAT_COMPANY,
+  hiredTenPlus: FILL.HIRED_TEN_PLUS,
+  massHired: FILL.MASS_HIRED,
+  hiredNobody: FILL.NO_HIRES,
+  ditched: { argb: null, theme: DITCHED_THEME },
+};
 
 export type FillSignature = {
   argb: string | null;
@@ -68,13 +102,23 @@ export type CompanyFlags = {
   isFooter: boolean;
 };
 
-export function companyFlagsFromFill(fill: FillSignature): CompanyFlags {
+/** A null swatch matches nothing — see CompanyPalette. */
+function matches(fill: FillSignature, swatch: string | null): boolean {
+  return swatch !== null && fill.argb === swatch;
+}
+
+export function companyFlagsFromFill(
+  fill: FillSignature,
+  palette: CompanyPalette,
+): CompanyFlags {
   return {
-    isRepeatCompany: fill.argb === FILL.REPEAT_COMPANY,
-    hiredTenPlus: fill.argb === FILL.HIRED_TEN_PLUS,
-    massHired: fill.argb === FILL.MASS_HIRED,
-    hiredNobody: fill.argb === FILL.NO_HIRES,
-    ditched: fill.theme === DITCHED_THEME,
+    isRepeatCompany: matches(fill, palette.repeatCompany),
+    hiredTenPlus: matches(fill, palette.hiredTenPlus),
+    massHired: matches(fill, palette.massHired),
+    hiredNobody: matches(fill, palette.hiredNobody),
+    ditched:
+      matches(fill, palette.ditched.argb) ||
+      (palette.ditched.theme !== null && fill.theme === palette.ditched.theme),
     isFooter: fill.argb === FILL.FOOTER,
   };
 }

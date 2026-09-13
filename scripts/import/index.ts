@@ -6,6 +6,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../generated/prisma/client.js";
 import { ReviewLog } from "./lib/review";
 import { readScene2026 } from "./sheets/scene2026";
+import { readScene2027 } from "./sheets/scene2027";
 import {
   readScene2022,
   readScene2023,
@@ -30,18 +31,32 @@ import type { ImportedWorkbook } from "./sheets/types";
  * the result: it lists every judgement the importer made and every fragment it
  * refused to guess at.
  *
- * The finished seasons — 2022 through 2026 — are read from their workbooks.
- * Each `Placement Scene '<yy>.xlsx` is optional: a season whose file is not
+ * Every season we hold a sheet for — 2022 through 2027 — is read from its
+ * workbook. Each `Placement Scene '<yy>.xlsx` is optional: a season whose file is not
  * present is skipped with a note rather than failing the whole run, so the
  * import works from whichever archives a maintainer has to hand. Each season
  * lands as offer rows in the shape a submission produces (see load.ts), so an
  * archived year reads through the same analytics as a live one.
  *
- * The season being played is deliberately NOT imported, even where a partial
- * sheet for it exists. A half-finished spreadsheet would seed a live batch with
- * packages a company advertised and headcounts nobody has confirmed; a batch
- * nobody has reported on should say so plainly instead. It fills up from
- * student submissions, and its sheet can be imported once the season is over.
+ * 2027 is being played right now, and importing it is a deliberate reversal of
+ * what this comment said before — that a live season waits for its sheet until
+ * the season is over. The objection then was hand entry: thirteen companies
+ * typed in from memory, with advertised packages and no source anyone could
+ * check. The cohort's own workbook answers that part. It does not answer the
+ * rest, and the rest is real: a mid-season sheet is a photograph of a race
+ * still being run. Its own PPO line is dated "info as of 4/08/2026 — may have
+ * changed", a quarter of its companies have no placement figure yet, and some
+ * say "IN PROCESS" or "COMING SOON" in the column where a number goes.
+ *
+ * What makes that importable rather than misleading is that the sheet marks its
+ * own gaps and the loader already respects them. A blank headcount is not zero
+ * (see `headcount` in scene2026.ts) and produces no offer rows, so a company
+ * still interviewing contributes its drive and its dates — the calendar and the
+ * directory's `visited` facet — and contributes nothing to any figure derived
+ * from offers. Nobody is counted as placed until the sheet says they were.
+ *
+ * What it cannot do is stay correct on its own. Re-run it as the season fills
+ * in; the load is idempotent per batch.
  */
 
 const REVIEW_PATH = resolve("scripts/import/out/import-review.csv");
@@ -78,6 +93,11 @@ const SOURCES: Source[] = [
     batchYear: 2026,
     file: { envVar: "IMPORT_XLSX_2026", defaultPath: "./Placement Scene '26.xlsx" },
     read: readScene2026,
+  },
+  {
+    batchYear: 2027,
+    file: { envVar: "IMPORT_XLSX_2027", defaultPath: "./Placement Scene '27.xlsx" },
+    read: readScene2027,
   },
 ];
 
