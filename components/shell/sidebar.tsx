@@ -36,13 +36,20 @@ type NavItem = {
   icon: typeof LayoutDashboard;
   /** Match nested routes too, e.g. /companies/meesho. */
   prefix?: boolean;
+  /**
+   * Fetch the whole page, data included, while the link is merely on screen,
+   * so the click is a paint rather than a round trip. Reserved for the pages
+   * everyone opens; a company profile or the submission form is fetched when
+   * it is actually asked for.
+   */
+  preload?: boolean;
 };
 
 const PRIMARY: NavItem[] = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/companies", label: "Companies", icon: Building2, prefix: true },
-  { href: "/calendar", label: "Season", icon: CalendarDays },
-  { href: "/analysis", label: "Analysis", icon: BarChart3 },
+  { href: "/overview", label: "Overview", icon: LayoutDashboard, preload: true },
+  { href: "/companies", label: "Companies", icon: Building2, prefix: true, preload: true },
+  { href: "/calendar", label: "Season", icon: CalendarDays, preload: true },
+  { href: "/analysis", label: "Analysis", icon: BarChart3, preload: true },
 ];
 
 const PERSONAL: NavItem[] = [
@@ -224,6 +231,9 @@ function NavGroup({
           <li key={item.href}>
             <Link
               href={href}
+              // These pages are dynamic, so the default prefetch stops at the
+              // loading boundary; `true` fetches the rendered page as well.
+              prefetch={item.preload ? true : undefined}
               aria-current={active ? "page" : undefined}
               className="flex h-[30px] items-center gap-2.5 rounded-[var(--radius-control)] px-2 text-[13px] transition-colors"
               style={{
