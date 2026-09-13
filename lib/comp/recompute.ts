@@ -18,7 +18,16 @@ export type RecomputeResult = {
   financialYear: string | null;
 };
 
-async function loadRegime(
+/**
+ * The latest tax configuration, or a named year's, as a validated `TaxRegime`.
+ *
+ * Exported because the import expands headcounts into offers and has to derive
+ * their compensation the same way a submission does. A second copy of this
+ * parsing in the import scripts would be free to drift — and did: it returned a
+ * regime with an empty slab list where this one returns null, so an unusable
+ * configuration produced take-home estimates computed against no tax at all.
+ */
+export async function loadRegime(
   prisma: PrismaClient,
   financialYear?: string,
 ): Promise<TaxRegime | null> {

@@ -23,12 +23,12 @@ export const metadata = { title: "Season · PESU Placement Tracker" };
  * the question students actually ask — "what has already gone, and what is
  * still to come".
  *
- * Dates come from what students report: the rounds they sat, and the date the
- * offer landed. That is the only source that can still be right next year. The
- * imported spreadsheets contribute their pre-placement talk dates for the one
- * batch they cover, listed separately and marked, because a season built half
- * from a 2026 spreadsheet and half from live reports reads as one timeline and
- * is not.
+ * Dates come from the rounds on each offer and the date the offer landed. A
+ * season that arrived by spreadsheet has them too: the import copies the sheet's
+ * round dates onto every offer it expands, so an archived year is dated the
+ * same way a live one is. Pre-placement talks are the exception — a PPT is a
+ * drive-level event rather than a round anyone sat, so it stays on the drive
+ * and is listed apart below.
  */
 export default async function CalendarPage({
   searchParams,
@@ -206,8 +206,8 @@ export default async function CalendarPage({
 
         {importedEntries.length > 0 ? (
           <Panel
-            title="Imported season"
-            description="Pre-placement talk dates from the placement spreadsheets. Company-level, not student-reported, and listed apart so the live timeline above stays one thing."
+            title="Pre-placement talks"
+            description="PPT dates recorded on each drive. A talk is a company-level event rather than a round anyone sat, so it is listed apart from the timeline above."
             padded={false}
           >
             <ul>

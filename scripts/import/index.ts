@@ -223,7 +223,8 @@ async function main() {
       const result = await loadWorkbook(prisma, parsed, review);
       console.log(
         `  batch ${parsed.batchYear}: ${result.companies} companies, ` +
-          `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds`,
+          `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds, ` +
+          `${result.offers} offers`,
       );
     }
 
