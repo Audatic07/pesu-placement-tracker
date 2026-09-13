@@ -57,6 +57,7 @@ export async function ensureBatch(year: number): Promise<BatchModel> {
           maxSixMonthInternships: policy?.maxSixMonthInternships ?? 3,
           maxFullTimePerTier: policy?.maxFullTimePerTier ?? 1,
           maxFullTimeTotal: policy?.maxFullTimeTotal ?? 3,
+          closeLowerTiers: policy?.closeLowerTiers ?? true,
           description: policy?.description ?? null,
         },
       },

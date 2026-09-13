@@ -24,11 +24,25 @@ export type QuotaSlot = {
   perTier?: Array<{ tierKey: string; label: string; used: number; max: number }>;
 };
 
+/**
+ * The best tier a student already holds, when the policy closes the tiers
+ * below it. Carries the boundary so the form can say in rupees what would be
+ * refused, rather than leaving the student to find out on submit.
+ */
+export type TierFloor = {
+  tierKey: string;
+  label: string;
+  rank: number;
+  minCtcLpa: number;
+};
+
 export type QuotaState = {
   batchId: string;
   batchYear: number;
   slots: QuotaSlot[];
   description: string | null;
+  /** Null when the policy does not close lower tiers, or nothing tiered is held yet. */
+  tierFloor: TierFloor | null;
 };
 
 export type QuotaVerdict =
@@ -62,10 +76,20 @@ export async function getQuotaState(
 
   const fullTime = offers.filter((offer) => offer.cycle === "FULL_TIME");
 
+  const floor = policy.closeLowerTiers ? bestTierHeld(offers, batch.tierConfigs) : null;
+
   return {
     batchId: batch.id,
     batchYear: batch.year,
     description: policy.description,
+    tierFloor: floor
+      ? {
+          tierKey: floor.key,
+          label: floor.label,
+          rank: floor.rank,
+          minCtcLpa: Number(floor.minCtcLpa),
+        }
+      : null,
     slots: [
       {
         cycle: "SUMMER_INTERNSHIP",
@@ -99,6 +123,25 @@ export async function getQuotaState(
       },
     ],
   };
+}
+
+type TierRow = { key: string; label: string; rank: number; minCtcLpa: unknown };
+
+/**
+ * The highest-ranked tier among the offers a student holds, across every
+ * cycle: a six-month internship whose package lands in Tier 1 closes the tiers
+ * below it exactly as a Tier 1 full-time offer does. Rank 1 is the top.
+ */
+function bestTierHeld(
+  offers: Array<{ tierKey: string | null }>,
+  tiers: TierRow[],
+): TierRow | null {
+  let best: TierRow | null = null;
+  for (const offer of offers) {
+    const tier = tiers.find((candidate) => candidate.key === offer.tierKey);
+    if (tier && (best === null || tier.rank < best.rank)) best = tier;
+  }
+  return best;
 }
 
 /**
@@ -152,6 +195,24 @@ export async function checkQuota(
       return {
         allowed: false,
         reason: `You have already recorded a full-time offer in ${label}. The policy allows ${policy.maxFullTimePerTier} per tier.`,
+      };
+    }
+  }
+
+  // A higher offer closes the tiers below it. The caps above are per cycle and
+  // per tier, so without this a student could record a Tier 1 offer and then a
+  // Tier 3 one, which the placement rules do not allow. Only an offer whose
+  // package resolves to a tier can be judged; one with no package has no tier
+  // and passes, because there is nothing to compare.
+  if (policy.closeLowerTiers && tierKey) {
+    const incoming = batch.tierConfigs.find((tier) => tier.key === tierKey);
+    const held = bestTierHeld(existing, batch.tierConfigs);
+    if (incoming && held && incoming.rank > held.rank) {
+      return {
+        allowed: false,
+        reason:
+          `You already hold a ${held.label} offer, and the policy closes the tiers below it. ` +
+          `This package lands in ${incoming.label}, so it cannot be recorded.`,
       };
     }
   }

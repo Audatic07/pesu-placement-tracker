@@ -239,10 +239,12 @@ async function main() {
         maxSixMonthInternships: 3,
         maxFullTimePerTier: 1,
         maxFullTimeTotal: 3,
+        closeLowerTiers: true,
         description:
           "You may record 1 summer internship, up to 3 six-month internships, and 1 full-time offer " +
-          "in each tier. These limits mirror what you are allowed to hold, so the analytics reflect " +
-          "reality rather than wishlists.",
+          "in each tier. Once you hold an offer in a tier, the tiers below it are closed. These " +
+          "limits mirror what you are allowed to hold, so the analytics reflect reality rather " +
+          "than wishlists.",
       },
     });
   }

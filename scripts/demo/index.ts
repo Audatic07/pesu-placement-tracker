@@ -653,6 +653,39 @@ async function verify(
     );
   }
 
+  // A higher offer closes the tiers below it. The per-tier cap alone would let
+  // the same Tier 1 holder record a Tier 3 offer next; the policy says the
+  // tiers below a held offer are closed. Filed with a package that resolves
+  // to Tier 3 by someone who holds Tier 1 and has room in the full-time total.
+  const lowerTierBlocked = await (async () => {
+    const holders = await prisma.offer.findMany({
+      where: { batchId: batch.id, cycle: "FULL_TIME", tierKey: "TIER_1" },
+      select: { student: { include: { offers: { where: { batchId: batch.id, cycle: "FULL_TIME" } } } } },
+    });
+    const holder = holders.find((row) => row.student && row.student.offers.length < 3)?.student;
+    if (!holder) return null;
+    const parsed = parseOfferForm(
+      toFormData(
+        {
+          ...SUBMISSIONS.find(
+            (entry) => entry.offer.cycle === "FULL_TIME" && (entry.offer.ctcLpa ?? 99) < 6,
+          )!.offer,
+          companyName: "Windrose Staffing",
+        },
+        BATCH_YEAR,
+      ),
+    );
+    if (!parsed.success) return null;
+    return createOffer(holder, parsed.data);
+  })();
+  if (lowerTierBlocked) {
+    check(
+      "a lower-tier offer after a higher one is refused",
+      !lowerTierBlocked.ok,
+      lowerTierBlocked.ok ? "IT WAS ACCEPTED" : `"${lowerTierBlocked.error}"`,
+    );
+  }
+
   // A student may only file against their own batch. The form posts a batch
   // year, so this cannot be enforced by hiding a field — it is checked against
   // the student's own graduating year inside createOffer.
