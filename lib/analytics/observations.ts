@@ -2,22 +2,26 @@ import "server-only";
 import { prisma } from "@/lib/db";
 
 /**
- * The live observation layer.
+ * The observation layer.
  *
  * Every statistic this application shows about a batch is built from student
- * submissions, and from nothing else. One submission is one person: their
- * package, their branch, their CGPA, the rounds they actually sat.
+ * reports. One row is one person: their package, their branch, their CGPA, the
+ * rounds they actually sat.
  *
- * This file used to union submissions with the rows imported from the placement
- * spreadsheets, and every aggregate averaged across both. That conflated two
- * quantities that are not the same thing — a company ADVERTISED 60 LPA, and a
- * student RECEIVED 60 LPA — and it meant the headline numbers for a live batch
- * were mostly a restatement of a spreadsheet nobody is maintaining any more.
+ * That includes the seasons that arrived by spreadsheet. Those workbooks are
+ * student-maintained, so a sheet row and an app submission are the same kind of
+ * record collected two different ways — there is no provenance distinction to
+ * preserve, and no reason to read one through different code than the other.
+ * What the sheets do not tell us is IDENTITY, which is what `studentId` being
+ * null on those rows already says. It is not a claim that they are lesser
+ * evidence.
  *
- * The imported layer is now history and is read only where history is the
- * point: `getCompanyHistory` below, which the company profile uses to show what
- * a recruiter did in previous years. It never reaches an aggregate. A batch
- * with no submissions reports honest emptiness rather than a borrowed number.
+ * So nothing here filters on `source`. A 2022 row and a 2027 row are read the
+ * same way, which is the entire point of expanding those headcounts into offers
+ * instead of leaving them as integers on a column. The one place the
+ * distinction still matters is inference OVER people — `detectOutlier` and
+ * `recomputeCorroboration` — where N rows expanded from one published figure
+ * are one observation and must not be counted as N.
  */
 
 export type Observation = {
@@ -143,70 +147,6 @@ export async function loadObservations(
       internshipDurationMonths: offer.internshipDurationMonths,
       verification: offer.verification,
       date: offer.offerDate ?? firstRound ?? offer.createdAt,
-    };
-  });
-}
-
-export type HistoricalPoint = {
-  batchYear: number;
-  cycle: string;
-  status: string;
-  studentsPlaced: number;
-  highestCtcLpa: number | null;
-  gpaCutoffRaw: string | null;
-};
-
-/**
- * The imported spreadsheet layer, read as history and only as history.
- *
- * These rows carry a headcount rather than a person — the 2026 sheet records
- * that IBM placed 88 students, not who they were — which is exactly why they
- * cannot be mixed into anything above. Kept because a recruiter's behaviour in
- * previous years is real context a first submission cannot supply.
- */
-export async function getCompanyHistory(companyId: string): Promise<HistoricalPoint[]> {
-  const drives = await prisma.drive.findMany({
-    where: { companyId },
-    select: {
-      cycle: true,
-      status: true,
-      gpaCutoffRaw: true,
-      batch: { select: { year: true } },
-      roles: {
-        select: {
-          placedInternship: true,
-          placedFte: true,
-          placedBoth: true,
-          compensation: { select: { id: true, ctcLpa: true } },
-        },
-      },
-    },
-    orderBy: [{ batch: { year: "asc" } }, { visitNumber: "asc" }],
-  });
-
-  return drives.map((drive) => {
-    // Roles sharing one merged cell in the source describe ONE package; count
-    // it once or a company advertising the same figure for three roles looks
-    // like three offers.
-    const byPackage = new Map<string, number>();
-    for (const role of drive.roles) {
-      if (role.compensation?.ctcLpa) {
-        byPackage.set(role.compensation.id, Number(role.compensation.ctcLpa));
-      }
-    }
-    const values = [...byPackage.values()];
-
-    return {
-      batchYear: drive.batch.year,
-      cycle: drive.cycle,
-      status: drive.status,
-      studentsPlaced: drive.roles.reduce(
-        (sum, role) =>
-          sum + (role.placedInternship ?? 0) + (role.placedFte ?? 0) + (role.placedBoth ?? 0),
-        0,
-      ),
-      highestCtcLpa: values.length ? Math.max(...values) : null,
-      gpaCutoffRaw: drive.gpaCutoffRaw,
     };
   });
 }

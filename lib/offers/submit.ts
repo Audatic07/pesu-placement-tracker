@@ -293,6 +293,17 @@ async function detectOutlier(
       deletedAt: null,
       verification: { notIn: ["DISPUTED", "REMOVED"] },
       compensation: { ctcLpa: { not: null } },
+
+      // One person, one peer. An imported headcount is a single published
+      // figure expanded into N identical rows, so leaving it in here would let
+      // one spreadsheet cell set the median on its own — and then flag the
+      // first student who honestly reports something different as the outlier.
+      //
+      // Excluded by what it is, not by what it is not: `ADMIN_ENTERED` is still
+      // one row per person and belongs in the median, so a whitelist on
+      // `SELF_REPORTED` would drop real peers the day anything starts writing
+      // it. `recomputeCorroboration` filters the same way, for the same reason.
+      source: { not: "OFFICIAL_IMPORT" },
     },
     select: { compensation: { select: { ctcLpa: true } } },
   });
@@ -488,7 +499,17 @@ export async function recomputeCorroboration(
   cycle: string,
 ): Promise<void> {
   const offers = await prisma.offer.findMany({
-    where: { companyId, batchId, cycle: cycle as never, deletedAt: null, source: "SELF_REPORTED" },
+    // See `detectOutlier`: N rows expanded from one published figure are one
+    // observation and cannot corroborate each other. Everything else is a
+    // person, `ADMIN_ENTERED` included, so this excludes the expansion by name
+    // rather than whitelisting the one source that exists today.
+    where: {
+      companyId,
+      batchId,
+      cycle: cycle as never,
+      deletedAt: null,
+      source: { not: "OFFICIAL_IMPORT" },
+    },
     select: { id: true, verification: true, compensation: { select: { ctcLpa: true } } },
   });
 

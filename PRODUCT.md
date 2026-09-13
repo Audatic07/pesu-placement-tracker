@@ -14,10 +14,12 @@ from those reports. Every figure the old spreadsheets buried — in a cell colou
 a merged range, or a note column — is a field a student fills in here, which is
 what lets it stay true after the spreadsheets stop being maintained.
 
-The imported sheets are a cold start, not a source. They seeded the company list
-and they give each recruiter a previous-years section on its own profile. No
-statistic about a batch is computed from them. A batch nobody has reported on
-shows that plainly rather than borrowing a number from 2026.
+The old sheets were student-maintained too, so a sheet row and an app submission
+are the same kind of record collected two different ways. Each finished season
+is imported as offer rows in the shape a submission produces — one row per
+placement, with no owning student because the sheet never said who — and reads
+through exactly the same analytics as a live batch. A batch nobody has reported
+on shows that plainly rather than borrowing a number from another year.
 
 ## Who uses it
 
@@ -43,12 +45,13 @@ there.
   over four to five years, and SAP at 26 LPA of which 8 lakhs is free meals and
   transport. The app separates headline CTC, first-year cash, recurring cash, and
   an estimated take-home, and shows the gap between them.
-- **One live source, one archive, never averaged together.** Every batch figure
-  counts one row per person who filed. Imported history is aggregate — IBM placed
-  88 students, but not who, and at a package it advertised rather than one anyone
-  confirmed receiving. Mixing the two would answer "what did students get" with
-  "what companies published", so the archive is shown beside live figures and
-  labelled, never summed into them.
+- **One kind of record, collected two ways.** Every batch figure counts one row
+  per placement, whether a student filed it here or the batch's own sheet
+  recorded it. What the sheet cannot say is identity — IBM placed 88 students,
+  but not who — so those rows carry no student. They count in every figure a
+  live row counts in, but wherever the app reasons about people they are one
+  observation: eighty-eight copies of one published package never flag a
+  student's report as an outlier and never corroborate one.
 - **Anonymity is structural.** Offers are anonymous by default, exact CGPA is
   banded in public views, and no statistic is shown for a cohort below five
   records — including maximums, which are one person's package wearing a hat.

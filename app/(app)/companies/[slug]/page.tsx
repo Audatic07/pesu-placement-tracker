@@ -85,9 +85,9 @@ export default async function CompanyPage({
       parent: { select: { name: true, slug: true } },
       children: { select: { name: true, slug: true } },
       aliases: { select: { alias: true } },
-      // Student submissions, which carry the process notes and the per-person
-      // detail the imported drive rows never had. Removed and soft-deleted
-      // records are excluded here rather than filtered in the view.
+      // Every report on record for this company, whichever season it came from.
+      // Removed and soft-deleted records are excluded here rather than filtered
+      // in the view.
       offers: {
         where: { deletedAt: null, verification: { not: "REMOVED" } },
         select: {
@@ -127,12 +127,6 @@ export default async function CompanyPage({
   const years = [...new Set(trend.map((point) => point.batchYear))];
   const allCtc = trend.map((point) => point.highestCtc).filter((v): v is number => v !== null);
 
-  // Never summed together: a 2026 offer can appear both as part of an imported
-  // headcount and as a student's own submission, and adding the two would count
-  // that person twice.
-  const importedPlaced = trend
-    .filter((point) => point.source === "imported")
-    .reduce((sum, point) => sum + point.studentsPlaced, 0);
   const latest = trend[trend.length - 1];
 
   const otherNames = company.aliases
@@ -191,11 +185,7 @@ export default async function CompanyPage({
           <Stat
             label="Reported here"
             value={formatCount(company.offers.length)}
-            hint={
-              importedPlaced > 0
-                ? `${formatCount(importedPlaced)} more in imported history`
-                : "Student submissions"
-            }
+            hint="Across every season on record"
           />
           <Stat
             label="Highest CTC"
@@ -207,27 +197,27 @@ export default async function CompanyPage({
             hint={latest ? `Batch of ${latest.batchYear}` : undefined}
           />
           <Stat
-            label="Imported visits"
+            label="Visits on record"
             value={formatCount(company.drives.length)}
-            hint={company.drives.length > 0 ? "From the 2026 sheets" : "None"}
+            hint={company.drives.length > 0 ? "Recorded drives" : "None"}
           />
         </StatGrid>
 
         {trend.length > 1 ? (
           <Panel
             title="Year on year"
-            description="Nominal figures. Rows are never summed across the two sources: an imported row is a headcount the old spreadsheet published, a reported row is people who filed here."
+            description="Nominal figures. One row per season and cycle, counted from the offers on record for it."
             padded={false}
           >
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--line)" }}>
-                  {["Batch", "Cycle", "Source", "Offers", "Highest CTC", "CGPA bar"].map(
+                  {["Batch", "Cycle", "Offers", "Highest CTC", "Median CTC", "CGPA bar"].map(
                     (heading, index) => (
                       <th
                         key={heading}
                         className={`h-8 px-4 text-[11px] font-medium uppercase tracking-[0.05em] ${
-                          index >= 3 ? "text-right" : "text-left"
+                          index >= 2 ? "text-right" : "text-left"
                         }`}
                         style={{ color: "var(--text-tertiary)" }}
                       >
@@ -240,24 +230,16 @@ export default async function CompanyPage({
               <tbody>
                 {[...trend].reverse().map((point, index) => (
                   <tr
-                    key={`${point.batchYear}-${point.source}-${index}`}
+                    key={`${point.batchYear}-${point.cycle}-${index}`}
                     style={{ borderBottom: "1px solid var(--line)" }}
                   >
                     <td className="tnum h-[38px] px-4 font-medium">{point.batchYear}</td>
                     <td className="px-4" style={{ color: "var(--text-secondary)" }}>
                       {CYCLE[point.cycle] ?? point.cycle}
                     </td>
-                    <td className="px-4">
-                      {point.source === "students" ? (
-                        <StatusBadge tone="accent">Students</StatusBadge>
-                      ) : (
-                        <StatusBadge tone="neutral">
-                          {STATUS[point.status]?.label ?? "Imported"}
-                        </StatusBadge>
-                      )}
-                    </td>
                     <td className="tnum px-4 text-right">{formatCount(point.studentsPlaced)}</td>
                     <td className="tnum px-4 text-right">{formatLpa(point.highestCtc)}</td>
+                    <td className="tnum px-4 text-right">{formatLpa(point.medianCtc)}</td>
                     <td className="tnum px-4 text-right">{point.gpaCutoff ?? "—"}</td>
                   </tr>
                 ))}
@@ -268,8 +250,8 @@ export default async function CompanyPage({
 
         {company.offers.length > 0 ? (
           <Panel
-            title="Reported by students"
-            description="Each one opens the full offer — the package broken down, the rounds, and the notes on the process."
+            title="Offers on record"
+            description="One row per placement, filed here or carried over from the batch's sheet. Each opens the full offer — the package broken down, the rounds, and any notes on the process."
             padded={false}
           >
             <ul>
@@ -326,10 +308,10 @@ export default async function CompanyPage({
             className="flex items-baseline gap-2 pt-1 text-[11px] font-medium uppercase tracking-[0.06em]"
             style={{ color: "var(--text-tertiary)" }}
           >
-            Imported history
+            Drives on record
             <span className="text-[12px] font-normal normal-case tracking-normal">
-              From the placement spreadsheets, kept as context. Company-level: a headcount, not
-              people. None of it feeds the batch statistics.
+              What the placement sheet recorded about each visit: the package advertised, the
+              schedule, and how it ended. The placements themselves are the offers above.
             </span>
           </div>
         ) : null}

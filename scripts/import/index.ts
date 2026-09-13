@@ -115,7 +115,8 @@ async function main() {
     const result = await loadWorkbook(prisma, parsed2026, review);
     console.log(
       `  batch ${parsed2026.batchYear}: ${result.companies} companies, ` +
-        `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds`,
+        `${result.drives} drives, ${result.roles} roles, ${result.rounds} rounds, ` +
+        `${result.offers} offers`,
     );
 
     await review.writeCsv(REVIEW_PATH);
