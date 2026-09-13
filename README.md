@@ -111,16 +111,20 @@ companies.
 
 `npm run import:excel` reads the workbooks named in `.env`. They contain real
 student placement data and are **not** in this repository, and neither are
-screenshots of them. The importer lands each finished season in the shape a
-submission produces: every published headcount becomes that many offer rows,
-each with `studentId = null` and `source = OFFICIAL_IMPORT`, so an archived
-year renders through the same analytics as a live one. Re-running it replaces
-the previous run's rows and never touches a student's own submission.
+screenshots of them. The importer lands each season in the shape a submission
+produces: every published headcount becomes that many offer rows, each with
+`studentId = null` and `source = OFFICIAL_IMPORT`, so an archived year renders
+through the same analytics as a live one. Re-running it replaces the previous
+run's rows and never touches a student's own submission.
 
-**Only finished seasons are imported.** A season still being played starts
-empty and fills up from student submissions alone, because a half-finished
-sheet would seed a live batch with headcounts a company published rather than
-outcomes a student confirmed.
+**The season being played is imported too, and is only ever as fresh as the last
+run.** 2027's sheet is a mid-season snapshot — a quarter of its companies have no
+placement figure yet, and its own PPO line carries the date it was accurate on. A
+company the sheet has no number for produces no offer rows at all, so it
+contributes its drive and its assessment dates — the calendar, and `visited` in
+the directory — and contributes nothing to any figure derived from offers. Nobody
+is counted as placed before the sheet says they were. Re-run the import as the
+season fills in.
 
 ## Commands
 
