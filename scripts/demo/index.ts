@@ -10,6 +10,7 @@ import {
   getAnnouncedCutoffs,
   getBatchOverview,
   getBranchBreakdown,
+  getCgpaOutlook,
   getCgpaVersusPackage,
   getCtcInflationLeaders,
   getSeasonProgress,
@@ -470,6 +471,23 @@ async function verify(
       "CGPA predicts package with real noise, not perfectly",
       fit !== null && fit.rSquared > 0.05 && fit.rSquared < 0.95,
       fit ? `r² = ${fit.rSquared.toFixed(3)}, slope ${fit.slope.toFixed(2)} LPA per point` : "no fit",
+    );
+
+    // The one-CGPA reading at the batch's median CGPA: enough peers there to
+    // clear the gate, and the announced bars split around it rather than all
+    // landing on one side.
+    const sortedCgpa = cgpa.value.map((point) => point.cgpa).sort((a, b) => a - b);
+    const medianCgpa = sortedCgpa[Math.floor(sortedCgpa.length / 2)]!;
+    const outlook = await getCgpaOutlook(BATCH_YEAR, medianCgpa);
+    check(
+      `the outlook at the median CGPA (${medianCgpa.toFixed(2)}) is released and splits the bars`,
+      !outlook.peers.suppressed &&
+        outlook.eligibility.cleared > 0 &&
+        outlook.eligibility.cleared < outlook.eligibility.withKnownBar,
+      outlook.peers.suppressed
+        ? `withheld: ${outlook.peers.reason}`
+        : `${outlook.peers.value.offers} peers, median ${outlook.peers.value.medianCtc} LPA · ` +
+          `clears ${outlook.eligibility.cleared} of ${outlook.eligibility.withKnownBar} bars`,
     );
   }
 

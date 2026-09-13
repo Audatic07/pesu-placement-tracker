@@ -4,10 +4,12 @@ import { prisma } from "@/lib/db";
 import {
   getBatchOverview,
   getBranchBreakdown,
+  getCgpaOutlook,
   getCgpaVersusPackage,
   getCtcInflationLeaders,
   getTierBreakdown,
 } from "@/lib/analytics/queries";
+import { parseCgpaParam, WITHIN_REACH, type CgpaOutlook } from "@/lib/analytics/outlook";
 import { Histogram } from "@/components/data/charts";
 import {
   EmptyState,
@@ -41,12 +43,18 @@ export default async function AnalysisPage({
 
   const q = `?batch=${batchYear}`;
 
-  const [overview, tiers, branches, inflation, cgpa] = await Promise.all([
+  // The chosen CGPA rides in the URL like every other view state here, so a
+  // student can send "where does 8.2 stand" as a link. Nothing typed into the
+  // box is stored anywhere.
+  const chosenCgpa = parseCgpaParam(params["cgpa"]);
+
+  const [overview, tiers, branches, inflation, cgpa, outlook] = await Promise.all([
     getBatchOverview({ batchYear }),
     getTierBreakdown(batchYear),
     getBranchBreakdown(batchYear),
     getCtcInflationLeaders(batchYear, 25),
     getCgpaVersusPackage(batchYear),
+    chosenCgpa === null ? null : getCgpaOutlook(batchYear, chosenCgpa),
   ]);
 
   if (!overview || overview.reportCount === 0) {
@@ -194,8 +202,192 @@ export default async function AnalysisPage({
             />
           )}
         </Panel>
+
+        <Panel
+          title="Where a CGPA stands"
+          description="Pick a CGPA — yours, or the one you are aiming for — and read what this batch's records say about it: which announced bars it clears, and what people at that CGPA reported getting."
+        >
+          <form method="get" action="/analysis" className="flex flex-wrap items-end gap-3">
+            <input type="hidden" name="batch" value={batchYear} />
+            <label className="flex flex-col gap-1 text-[12px] font-medium">
+              CGPA
+              <input
+                name="cgpa"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                max="10"
+                step="0.01"
+                required
+                defaultValue={chosenCgpa ?? ""}
+                placeholder="e.g. 8.2"
+                className="tnum h-[30px] w-32 rounded-[var(--radius-control)] px-2 text-[13px] outline-none"
+                style={{
+                  background: "var(--panel)",
+                  color: "var(--text)",
+                  boxShadow: "inset 0 0 0 1px var(--line-strong)",
+                }}
+              />
+            </label>
+            <button
+              type="submit"
+              className="inline-flex h-[30px] items-center rounded-[var(--radius-control)] px-3 text-[13px] font-medium"
+              style={{ background: "var(--accent-solid)", color: "var(--accent-fg)" }}
+            >
+              Show
+            </button>
+            {outlook ? (
+              <Link href={`/analysis${q}`} className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+                Clear
+              </Link>
+            ) : null}
+          </form>
+
+          {outlook ? <Outlook outlook={outlook} q={q} /> : null}
+
+          <SourceNote>
+            Past seasons, self-reported. A bar is what a company announced, as students heard it —
+            not who it hired. Nothing typed here is stored; it only shapes this view, and the
+            address bar carries it if you want to send it to someone.
+          </SourceNote>
+        </Panel>
       </div>
     </>
+  );
+}
+
+function Outlook({ outlook, q }: { outlook: CgpaOutlook; q: string }) {
+  const { eligibility, peers, peerRange } = outlook;
+  const cgpaLabel = outlook.cgpa.toFixed(2);
+
+  return (
+    <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <div>
+        <h3 className="text-[13px] font-medium">Announced bars at {cgpaLabel}</h3>
+        <p className="mt-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+          {eligibility.withKnownBar === 0
+            ? "No company's announced cutoff has been reported for this batch yet."
+            : `Clears the bar at ${formatCount(eligibility.cleared)} of ${formatCount(
+                eligibility.withKnownBar,
+              )} companies whose cutoff someone reported.`}
+        </p>
+
+        <BarList
+          title={`Within ${WITHIN_REACH.toFixed(1)} of it`}
+          note="A little more and these open up."
+          bars={eligibility.withinReach}
+          total={eligibility.withinReachTotal}
+          q={q}
+        />
+        <BarList
+          title="Further than that"
+          note="Nearest bar first, not biggest package first."
+          bars={eligibility.outOfReach}
+          total={eligibility.outOfReachTotal}
+          q={q}
+        />
+      </div>
+
+      <div>
+        <h3 className="text-[13px] font-medium">
+          People between {peerRange.from.toFixed(2)} and {peerRange.to.toFixed(2)}
+        </h3>
+        {peers.suppressed ? (
+          <div className="mt-2">
+            <Withheld
+              reason={
+                "Built from students who reported their own CGPA beside their own package. " +
+                peers.reason
+              }
+            />
+          </div>
+        ) : (
+          <>
+            <div className="mt-2 grid grid-cols-3 gap-4">
+              {[
+                ["Offers", formatCount(peers.value.offers)],
+                ["Median CTC", formatLpa(peers.value.medianCtc)],
+                [
+                  "Middle half",
+                  peers.value.p25Ctc === null || peers.value.p75Ctc === null
+                    ? "—"
+                    : `${formatLpa(peers.value.p25Ctc, false)} – ${formatLpa(peers.value.p75Ctc)}`,
+                ],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <div
+                    className="text-[11px] uppercase tracking-[0.05em]"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    {label}
+                  </div>
+                  <div className="tnum mt-1 text-[17px] font-medium">{value}</div>
+                </div>
+              ))}
+            </div>
+            <Table
+              head={["Tier", "Offers"]}
+              rows={[
+                ...peers.value.byTier.map((tier) => ({
+                  key: tier.tierKey,
+                  cells: [tier.label, formatCount(tier.offers)],
+                })),
+                ...(peers.value.untiered > 0
+                  ? [{ key: "none", cells: ["No CTC given", formatCount(peers.value.untiered)] }]
+                  : []),
+              ]}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BarList({
+  title,
+  note,
+  bars,
+  total,
+  q,
+}: {
+  title: string;
+  note: string;
+  bars: CgpaOutlook["eligibility"]["withinReach"];
+  total: number;
+  q: string;
+}) {
+  if (total === 0) return null;
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h4 className="text-[12px] font-medium">{title}</h4>
+        <span className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+          {note}
+        </span>
+      </div>
+      <ul className="mt-1.5 flex flex-col">
+        {bars.map((bar) => (
+          <li
+            key={bar.companySlug}
+            className="flex h-7 items-center justify-between gap-3 border-b text-[13px]"
+            style={{ borderColor: "var(--line)" }}
+          >
+            <Link href={`/companies/${bar.companySlug}${q}`} className="truncate">
+              {bar.companyName}
+            </Link>
+            <span className="tnum" style={{ color: "var(--text-secondary)" }}>
+              {bar.announcedCgpaCutoff.toFixed(2)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {total > bars.length ? (
+        <p className="mt-1.5 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+          and {formatCount(total - bars.length)} more.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
