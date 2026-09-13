@@ -102,8 +102,17 @@ const DEFAULT_TIERS = [
  * Batches. The 2026 season start comes from the source sheet, which records
  * "The process started on 01 Aug 2025"; later years follow the same cadence
  * and are adjustable from the admin console.
+ *
+ * 2022–2025 are archived seasons, seeded so the historical workbooks
+ * (Placement Scene '22–'25) have a batch to import into. Their season opens in
+ * August of the preceding year, the same August cadence as 2026. They carry no
+ * policy note — the per-batch offer-limit text only exists for 2026 onward.
  */
 const BATCHES = [
+  { year: 2022, seasonStartsAt: new Date("2021-08-01T00:00:00Z"), policyNote: null },
+  { year: 2023, seasonStartsAt: new Date("2022-08-01T00:00:00Z"), policyNote: null },
+  { year: 2024, seasonStartsAt: new Date("2023-08-01T00:00:00Z"), policyNote: null },
+  { year: 2025, seasonStartsAt: new Date("2024-08-01T00:00:00Z"), policyNote: null },
   {
     year: 2026,
     seasonStartsAt: new Date("2025-08-01T00:00:00Z"),
