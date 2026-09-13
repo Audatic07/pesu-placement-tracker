@@ -344,8 +344,26 @@ export async function getCtcInflationLeaders(
 ): Promise<CtcInflationRow[]> {
   const all = await loadObservations({ batchYear });
 
+  // This is a list of PACKAGES, not of people: the question is how much of a
+  // headline is cash, and the same package answers it once. Identical rows —
+  // several classmates on one offer letter, or a headcount the import expanded
+  // into N copies of one published figure — would otherwise fill the list with
+  // one company repeated and push every other package off it.
+  const seen = new Set<string>();
+
   return all
     .filter((observation) => observation.ctcLpa !== null)
+    .filter((observation) => {
+      const key = [
+        observation.companySlug,
+        observation.ctcLpa,
+        observation.firstYearCashLpa,
+        observation.nonCashLpa,
+      ].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((observation) => ({
       key: observation.offerId,
       companyName: observation.companyName,
