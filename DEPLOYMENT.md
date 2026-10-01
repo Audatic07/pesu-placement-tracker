@@ -27,13 +27,26 @@ local copies of the source workbooks; the server never reads them.
 
 Login proxies to [pesu-dev/auth](https://github.com/pesu-dev/auth), which
 verifies credentials against PESU Academy. **Run your own instance.** The public
-one at `pesu-auth.onrender.com` sits behind a free-tier gateway that returns 502
+one at `pesuauth.onrender.com` sits behind a free-tier gateway that returns 502
 on slow requests, and the only slow request is a *successful* login — the one
 that goes on to scrape a profile. The observable symptom is correct passwords
 failing while wrong ones are rejected cleanly.
 
 The image is `pesudev/pesu-auth:latest`, listening on 5000, with a `/health`
 endpoint. `docker-compose.yml` shows the shape.
+
+If you use the public hosted instance, set `PESU_AUTH_BASE_URL` to
+`https://pesuauth.onrender.com` in your hosting dashboard (including any preview
+or other deployment environments that use it), then redeploy so the app picks
+up the value. The previous production host shuts down on October 27, 2026;
+changing this repository does not update an existing deployment's variables.
+The API routes and request/response formats are unchanged.
+
+If the keep-warm workflow is enabled, also update the GitHub Actions repository
+variable `PESU_AUTH_URL` to `https://pesuauth.onrender.com` under
+Settings → Secrets and variables → Actions → Variables. It is configured
+separately from the app's `PESU_AUTH_BASE_URL`. Keep your own instance's URL
+if you self-host authentication.
 
 No credential is stored by either service. The password crosses this server once
 per login and is never written down.
