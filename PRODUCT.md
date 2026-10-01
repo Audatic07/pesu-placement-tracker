@@ -15,11 +15,17 @@ a merged range, or a note column — is a field a student fills in here, which i
 what lets it stay true after the spreadsheets stop being maintained.
 
 The old sheets were student-maintained too, so a sheet row and an app submission
-are the same kind of record collected two different ways. Each finished season
-is imported as offer rows in the shape a submission produces — one row per
-placement, with no owning student because the sheet never said who — and reads
-through exactly the same analytics as a live batch. A batch nobody has reported
-on shows that plainly rather than borrowing a number from another year.
+are the same kind of record collected two different ways. Each season we hold a
+sheet for is imported as offer rows in the shape a submission produces — one row
+per placement, with no owning student because the sheet never said who — and
+reads through exactly the same analytics as a live batch. A batch nobody has
+reported on shows that plainly rather than borrowing a number from another year.
+
+That includes the season being played, whose sheet is filled in as it goes. The
+import takes what that sheet has confirmed and nothing else: a company still
+interviewing has a drive and dates but no offer rows, so it reads as visited and
+counts toward nothing. A live batch's figures are a floor that rises as the sheet
+and the submissions catch up, never a final total.
 
 ## Who uses it
 

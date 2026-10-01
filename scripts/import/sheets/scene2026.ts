@@ -6,6 +6,8 @@ import {
   isOwnCell,
   readFill,
   roundModeFromFill,
+  PALETTE_2026,
+  type CompanyPalette,
 } from "../lib/colors";
 import { cellText } from "../lib/cells";
 import { parseSheetDate, seasonWindowForBatch, type SeasonWindow } from "../lib/dates";
@@ -61,6 +63,12 @@ export type TabSpec = {
   headerRow: number;
   expectedHeaders: Array<[number, RegExp]>;
   layout: ColumnLayout;
+  /**
+   * What the first column says on the row that ends the data, when the default
+   * below is not enough. 2027 closes with a "PPO OFFERED STUDENTS" line that is
+   * neither navy nor a total, and would otherwise be read as a company.
+   */
+  footerLabel?: RegExp;
   tierKey: string | null;
   cycle: OfferCycle;
 };
@@ -284,7 +292,7 @@ function headcount(sheet: Worksheet, row: number, column: number | null): number
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function verifyHeaders(sheet: Worksheet, spec: TabSpec): void {
+function verifyHeaders(sheet: Worksheet, spec: TabSpec, configLocation: string): void {
   const problems: string[] = [];
 
   for (const [column, pattern] of spec.expectedHeaders) {
@@ -300,7 +308,7 @@ function verifyHeaders(sheet: Worksheet, spec: TabSpec): void {
     throw new Error(
       `Sheet "${spec.sheet}" does not have the expected layout — refusing to import ` +
         `rather than map columns wrongly.\n${problems.join("\n")}\n` +
-        `If the sheet has legitimately changed, update TABS in scripts/import/sheets/scene2026.ts.`,
+        `If the sheet has legitimately changed, update TABS in ${configLocation}.`,
     );
   }
 }
@@ -387,13 +395,15 @@ function readTab(
   spec: TabSpec,
   window: SeasonWindow,
   review: ReviewLog,
+  configLocation: string,
+  palette: CompanyPalette,
 ): { drives: ImportedDrive[]; footer: SheetFooterStats } {
   const sheet = workbook.getWorksheet(spec.sheet);
   if (!sheet) {
     throw new Error(`Sheet "${spec.sheet}" not found in the workbook.`);
   }
 
-  verifyHeaders(sheet, spec);
+  verifyHeaders(sheet, spec, configLocation);
 
   const drives: ImportedDrive[] = [];
   let current: ImportedDrive | null = null;
@@ -403,10 +413,11 @@ function readTab(
     const companyCell = sheet.getCell(row, spec.layout.company);
     const companyText = cellText(companyCell);
     const fill = readFill(companyCell);
-    const flags = companyFlagsFromFill(fill);
+    const flags = companyFlagsFromFill(fill, palette);
 
     // Stop at the summary block: it is styled navy and starts with a total.
-    if (flags.isFooter || (companyText && FOOTER_LABEL.test(companyText))) {
+    const footerLabel = spec.footerLabel ?? FOOTER_LABEL;
+    if (flags.isFooter || (companyText && footerLabel.test(companyText))) {
       footerStartRow = row;
       break;
     }
@@ -694,6 +705,18 @@ export type ColourWorkbookSpec = {
   emitFooters: boolean;
   /** Passed straight through to the loader — see ImportedWorkbook. */
   deriveTierFromCtc: boolean;
+  /**
+   * Which fill means what in THIS workbook. Not shared: the cohort restyles the
+   * template between seasons, and 2027 reuses 2026's black for the opposite
+   * claim. See CompanyPalette.
+   */
+  palette: CompanyPalette;
+  /**
+   * Where this workbook's TABS are declared, quoted verbatim when the header
+   * check fails. Sending someone to the wrong file at the moment a layout has
+   * shifted under them is the one thing that error must not do.
+   */
+  configLocation: string;
 };
 
 /**
@@ -701,10 +724,9 @@ export type ColourWorkbookSpec = {
  * company blocks, meaning encoded in cell fill, and per-tab column layouts
  * declared as TabSpecs.
  *
- * 2026 is its only caller today. It is a shared reader rather than 2026's own
- * because that season is not the last one to use this format — the workbook is
- * a template the placement cohort keeps reusing, and a second season reading it
- * should differ only in its TabSpecs and whether a verifiable footer exists.
+ * 2026 and 2027 are its callers. The workbook is a template the placement
+ * cohort keeps reusing, so a season in this format is a set of TabSpecs and
+ * little else — see scene2027.ts, which is a layout and a call.
  */
 export function readColourCodedWorkbook(
   workbook: Workbook,
@@ -717,7 +739,7 @@ export function readColourCodedWorkbook(
   const footers: SheetFooterStats[] = [];
 
   for (const tab of spec.tabs) {
-    const result = readTab(workbook, tab, window, review);
+    const result = readTab(workbook, tab, window, review, spec.configLocation, spec.palette);
     drives.push(...result.drives);
     if (spec.emitFooters) footers.push(result.footer);
   }
@@ -734,7 +756,14 @@ export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWo
   // Tiers come from the tabs. A role with no tier here has none by design.
   return readColourCodedWorkbook(
     workbook,
-    { batchYear: 2026, tabs: TABS, emitFooters: true, deriveTierFromCtc: false },
+    {
+      batchYear: 2026,
+      tabs: TABS,
+      emitFooters: true,
+      deriveTierFromCtc: false,
+      palette: PALETTE_2026,
+      configLocation: "scripts/import/sheets/scene2026.ts",
+    },
     review,
   );
 }
