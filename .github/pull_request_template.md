@@ -23,8 +23,8 @@ it has broken here at least once.
 
 ## Privacy
 
-- [ ] No new aggregate bypasses `lib/privacy/gate.ts`, and nothing unwraps a
-      `Suppressible<T>` with a cast.
+- [ ] No new CGPA statistic bypasses `lib/privacy/gate.ts`, nothing unwraps a
+      `Suppressible<T>` with a cast, and no public view shows an exact CGPA.
 - [ ] No new path stores, logs or forwards a PESU password.
 - [ ] No real student data appears in this diff, in a fixture, or in a test.
 

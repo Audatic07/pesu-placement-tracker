@@ -92,6 +92,9 @@ async function buildJson() {
     offers: offers.map((offer) => ({
       ...offer,
       studentId: pseudonym(offer.studentId),
+      // Exact, unlike the CSV's band, and on purpose: this file is the record
+      // a rewrite is rebuilt from, and a band cannot be turned back into the
+      // CGPA it came from. It never leaves the admin role.
       cgpa: offer.cgpa,
     })),
   };

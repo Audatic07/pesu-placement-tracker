@@ -55,9 +55,11 @@ there.
   app reasons about people they are one observation: eighty-eight copies of
   one published package never flag a student's report as an outlier and never
   corroborate one.
-- **Anonymity is structural.** Offers are anonymous by default, exact CGPA is
-  banded in public views, and no statistic is shown for a cohort below five
-  records — including maximums, which are one person's package wearing a hat.
+- **Anonymity is structural.** Offers are anonymous by default and exact CGPA
+  is banded in public views. Packages are public, anonymous records — a
+  company's highest package is an offer anyone can open — so package figures
+  are shown at any cohort size. No CGPA statistic is shown for a cohort below
+  five records.
 - **Everything is batch-scoped configuration.** Tier boundaries, submission
   quotas, tax slabs. The 2026 sheet's own guidelines already note a tier that
   applied "to 2025 batch only".

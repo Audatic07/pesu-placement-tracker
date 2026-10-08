@@ -23,10 +23,11 @@ a placement season; that is slower than a company, and it is the honest number.
 
 Ranked by how badly it goes wrong, not by how interesting the bug is:
 
-1. **Any path that reveals an individual student's package, CGPA or identity**
-   from what is supposed to be an aggregate. This includes small-cohort
-   inference: if a filter combination narrows to one person, the answer must be
-   suppressed rather than shown. The gate is `lib/privacy/gate.ts`.
+1. **Any path that reveals a student's identity or exact CGPA.** Offers are
+   public and anonymous by design, so a package on its own is not a finding.
+   An offer tied to a name the student did not opt into is, as is an exact
+   CGPA in a public view, or a CGPA statistic shown for a cohort below the
+   minimum. The gate is `lib/privacy/gate.ts`.
 2. **Anything touching the PESU password.** It passes through the server once
    and is never stored, logged or cached. A path that writes it anywhere — an
    error log, a trace, a retry buffer — is critical.

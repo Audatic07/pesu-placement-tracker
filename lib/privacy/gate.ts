@@ -6,13 +6,15 @@
  * have learned that person's CGPA and package regardless of whose name is on
  * it — everyone in EEE knows who got the Netradyne offer.
  *
- * So no aggregate over a cohort smaller than K is ever returned. Minimum and
- * maximum are suppressed with the rest: they leak hardest, because a maximum
- * IS one person's exact package.
+ * What this gate protects is CGPA set beside an outcome. Packages are not
+ * gated: every offer is a public, anonymous record, so a median or maximum
+ * over packages tells nobody more than the offer pages already do. A CGPA
+ * statistic is different — it is the figure a classmate could not otherwise
+ * see — so no CGPA aggregate over a cohort smaller than K is ever returned.
  *
- * Statistics are produced ONLY through this module. The type system enforces
- * it — `Suppressible<T>` cannot be read without handling the suppressed case,
- * so a caller cannot forget.
+ * CGPA statistics are produced ONLY through this module. The type system
+ * enforces it — `Suppressible<T>` cannot be read without handling the
+ * suppressed case, so a caller cannot forget.
  */
 
 export const DEFAULT_MIN_COHORT_SIZE = 5;

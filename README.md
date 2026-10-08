@@ -31,11 +31,13 @@ never do is vote more than once where the app reasons about people: outlier
 detection and corroboration treat an expanded headcount as one observation,
 not eighty-eight.
 
-**Anonymity is structural, not a checkbox.** Offers are anonymous by default,
-exact CGPA is banded in public views, and no statistic is shown for a cohort
-below five records — including maximums, which are one person's package wearing
-a hat. The gate is enforced by the type system: a suppressible statistic cannot
-be read without handling the suppressed case.
+**Anonymity is structural, not a checkbox.** Offers are anonymous by default
+and exact CGPA is banded in public views. Packages are not hidden: every offer
+is a public, anonymous record, so a company's median or highest package is a
+summary of offers anyone can already open. What is gated is a CGPA set beside an
+outcome — no CGPA statistic is shown for a cohort below five records, and that
+gate is enforced by the type system: a suppressible statistic cannot be read
+without handling the suppressed case.
 
 **Everything is batch-scoped configuration.** Tier boundaries, submission
 quotas, tax slabs. The 2026 sheet's own guidelines already note a tier that

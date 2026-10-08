@@ -40,11 +40,12 @@ into two rows because someone typed it in lower case.
 
 ## The rules that are not negotiable
 
-**No statistic bypasses the privacy gate.** Everything aggregate goes through
-`lib/privacy/gate.ts`. `Suppressible<T>` cannot be read without handling the
-suppressed case, and that is deliberate — do not unwrap it with a cast. Minimum
-and maximum are suppressed with everything else, because a maximum is one
-person's exact package.
+**No CGPA statistic bypasses the privacy gate.** Anything that sets a CGPA
+beside an outcome goes through `lib/privacy/gate.ts`. `Suppressible<T>` cannot
+be read without handling the suppressed case, and that is deliberate — do not
+unwrap it with a cast. Package figures are not gated: each offer is already a
+public, anonymous record, so a median or maximum over them reveals nothing its
+offer pages do not. Exact CGPA never appears in a public view; show the band.
 
 **No password is stored, logged, or held longer than the request.** It passes
 through the server once, to pesu-auth, and is never written anywhere. Check
