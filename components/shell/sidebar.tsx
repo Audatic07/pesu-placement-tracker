@@ -64,6 +64,15 @@ const PERSONAL: NavItem[] = [
  */
 const ANONYMOUS: NavItem[] = [{ href: "/submit", label: "Add an offer", icon: Plus }];
 
+/**
+ * Batches from here up are synthetic, built by scripts/demo. The demo batch is
+ * deliberately live so a first visitor sees a filled tracker rather than an
+ * empty one, which is exactly why it has to say so: its invented companies
+ * read like real ones. A constant rather than a column because no real cohort
+ * will ever graduate in a year this large.
+ */
+const DEMO_BATCH_FLOOR = 9000;
+
 const ADMIN: NavItem[] = [
   { href: "/admin/reports", label: "Reports", icon: ShieldAlert, prefix: true },
   { href: "/admin/audit", label: "Audit log", icon: FileText },
@@ -188,6 +197,17 @@ export function Sidebar(props: SidebarProps) {
           )}
         </div>
       </aside>
+
+      {activeBatch >= DEMO_BATCH_FLOOR ? (
+        <div
+          role="note"
+          className="flex items-center gap-2 border-b py-2 pl-14 pr-4 text-[12px] lg:ml-[236px] lg:pl-6"
+          style={{ borderColor: "var(--line)", background: "var(--bg-subtle)", color: "var(--text-secondary)" }}
+        >
+          <span aria-hidden className="size-[6px] shrink-0 rounded-full" style={{ background: "var(--warning)" }} />
+          Sample data. The batch of {activeBatch} is made up, so you can see how a filled season reads.
+        </div>
+      ) : null}
     </>
   );
 }
