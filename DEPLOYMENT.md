@@ -121,9 +121,37 @@ remain available in the admin editor but are excluded from production batch
 navigation and cannot supply policy defaults for real batches. Never import
 real placement data into a reserved test year.
 
+## Publish a historical archive
+
+The owner-only `/admin/archive` imports a prepared, gzip-compressed JSON archive
+without dropping compensation components or recruiting rounds. It requires a
+private database backup downloaded by that owner within the preceding 24 hours.
+Review the batch counts before committing; publication is one transaction and
+receives an audit fingerprint. An identical retry is a no-op, including after
+later admin corrections. A changed archive with overlapping historical batches
+is refused instead of replacing existing data. Correct published outcomes in
+the ordinary admin editor, which records revisions and permits soft removal.
+
+The envelope is `{ "format": "pesu-placement-archive", "version": 1,
+"expected": { "2026": 123 }, "entries": [...] }`. The strict schema in
+`lib/admin/archive-schema.ts` describes every supported field. Outcomes must be
+anonymous and retain source notes; recipient identity, CGPA and offer dates
+cannot be inferred from a headcount. Stable outcome IDs link each compensation
+package and recruiting round. Unknown values remain null. Recorded tier keys
+must exist in the target batches; batch policy is never overwritten. Genuine
+student submissions displace matching anonymous stand-ins.
+
+Limits are 500 KB compressed, 24 MB expanded, 10,000 outcomes and 20 batches.
+Compress before uploading so the normal Server Action request limit is retained.
+Source workbooks, archive uploads and private backups stay outside the public
+repository. `npm run archive:verify` exercises access checks, transaction
+rollback, preserved detail, concurrent retries and genuine submission matching
+against a disposable localhost database.
+
 ## Backup and restore
 
-The owner-only `/api/admin/backup` endpoint takes a consistent DB snapshot.
+The owner-only `/api/admin/backup` endpoint downloads a gzip-compressed,
+consistent DB snapshot (`.json.gz`) to fit function response limits.
 It includes private student identifiers, placement/configuration tables,
 edit history, moderation and audit records. It excludes infrastructure credentials
 and ephemeral rate-limit buckets. Store backups encrypted with restricted access,
@@ -139,10 +167,11 @@ To recover, point the environment at a **new, empty PostgreSQL database**, run
 `npm run db:deploy` (do not seed), then:
 
 ```bash
-npm run backup:restore -- /private/placement-private-backup.json --empty-database
+npm run backup:restore -- /private/placement-private-backup.json.gz --empty-database
 ```
 
-Restore checks the exact migration set and refuses a populated target. All
+Restore accepts compressed downloads and older plain JSON backups, checks the
+exact migration set and refuses a populated target. All
 tables restore in one transaction; failure leaves no partial dataset. Periodically
 test restores, verifying counts, owner login, policies and totals before routing
 traffic. PostgreSQL/provider backups remain the primary recovery route for large

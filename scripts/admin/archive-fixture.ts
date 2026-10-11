@@ -1,0 +1,80 @@
+import type { PlacementArchiveData } from "../../lib/admin/archive-schema";
+
+// Synthetic records only. Real placement archives never belong in Git.
+export function archiveFixture(
+  id = `handmade-${"1".repeat(32)}`,
+  companyName = "Synthetic Archive",
+): PlacementArchiveData {
+  return {
+    format: "pesu-placement-archive",
+    version: 1,
+    expected: { "2001": 1 },
+    entries: [
+      {
+        id,
+        batchYear: 2001,
+        companyName,
+        roleTitle: "Engineer",
+        roleFamily: "SDE",
+        cycle: "FULL_TIME",
+        nature: "FTE_ONLY",
+        tierKey: "TIER_1",
+        studentId: null,
+        branchId: null,
+        cgpa: null,
+        cgpaBand: null,
+        offerDate: null,
+        announcedCgpaCutoff: null,
+        eligibleBranches: [],
+        locations: [],
+        workMode: "UNKNOWN",
+        bondMonths: null,
+        internshipDurationMonths: null,
+        acceptanceStatus: "UNKNOWN",
+        nameVisibility: "ANONYMOUS",
+        source: "OFFICIAL_IMPORT",
+        verification: "UNVERIFIED",
+        confidenceScore: 0,
+        processNotes: "Synthetic source row; no recipient is known.",
+        compensation: {
+          id: `${id}-package`,
+          stipendPerMonthInr: null,
+          baseLpa: 8,
+          ctcLpa: 12,
+          disclosure: "DISCLOSED",
+          rawNote: "Synthetic compensation note",
+          firstYearCashLpa: 8,
+          steadyStateCashLpa: 8,
+          estimatedInHandMonthlyInr: null,
+          ctcInflationRatio: 1.5,
+          computedForFinancialYear: null,
+          components: [
+            {
+              kind: "RSU",
+              label: "Synthetic stock",
+              amount: 1000.25,
+              currency: "USD",
+              isLpa: false,
+              isOneTime: false,
+              vestingYears: 4,
+              isCash: false,
+            },
+          ],
+        },
+        rounds: [
+          {
+            id: `${id}-round-2`,
+            sequence: 2,
+            kind: "TECHNICAL_INTERVIEW",
+            mode: "ONLINE",
+            heldOn: "2000-10-10T00:00:00.000Z",
+            heldUntil: "2000-10-11T00:00:00.000Z",
+            rawSchedule: "10–11 October",
+            topics: [],
+            notes: "Synthetic schedule",
+          },
+        ],
+      },
+    ],
+  };
+}
