@@ -71,7 +71,7 @@ export default async function OverviewPage({
         title="Overview"
         description={`How the batch of ${batchYear} is doing, from ${formatCount(
           overview.reportCount,
-        )} offer outcomes: ${formatCount(overview.historicalCount)} from historical sheets and ${formatCount(overview.reportCount - overview.historicalCount)} student submissions.`}
+        )} offer outcomes: ${formatCount(overview.historicalCount)} from historical sheets and admin records, and ${formatCount(overview.reportCount - overview.historicalCount)} student submissions.`}
         actions={
           <Button href="/submit" variant="primary">
             Add yours

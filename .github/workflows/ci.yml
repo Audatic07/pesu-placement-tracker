@@ -136,3 +136,5 @@ jobs:
       # build job.
       - name: Demo cohort (batch 9998)
         run: npm run demo:9998 -- --reset
+      - name: Administrative writes, import rollback and owner recovery
+        run: npm run admin:verify

@@ -106,7 +106,7 @@ async function readBatchOverview(
   return {
     batchYear: filters.batchYear,
     reportCount: observations.length,
-    historicalCount: observations.filter((row) => row.source === "OFFICIAL_IMPORT").length,
+    historicalCount: observations.filter((row) => row.source !== "SELF_REPORTED").length,
     unknownAcceptance: countWhere((row) => row.acceptanceStatus === "UNKNOWN"),
     companiesReported: new Set(observations.map((observation) => observation.companyId)).size,
     accepted: countWhere((row) => row.acceptanceStatus === "ACCEPTED"),
@@ -409,7 +409,10 @@ export type CompanyTrendPoint = {
 /** Historical and student submissions share one company/season aggregate. */
 export async function getCompanyTrend(companyId: string): Promise<CompanyTrendPoint[]> {
   const offers = await prisma.offer.findMany({
-    where: { companyId, deletedAt: null, verification: { not: "REMOVED" } },
+    where: {
+      companyId, deletedAt: null, verification: { not: "REMOVED" },
+      ...(process.env.NODE_ENV === "production" ? { batch: { year: { lt: 9000 } } } : {}),
+    },
     select: {
       cycle: true,
       announcedCgpaCutoff: true,

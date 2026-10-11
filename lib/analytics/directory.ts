@@ -173,7 +173,7 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
   for (const offer of offers) {
     const row = at(offer.company, offer.cycle);
     row.reports += 1;
-    if (offer.source === "OFFICIAL_IMPORT") row.historicalReports += 1;
+    if (offer.source !== "SELF_REPORTED") row.historicalReports += 1;
     else row.studentReports += 1;
     row.roleFamilies.add(offer.roleFamily);
     if (offer.roleTitle && !row.roleTitles.includes(offer.roleTitle)) {

@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import type { BatchModel } from "@/generated/prisma/models";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 /**
  * Batch provisioning.
@@ -23,11 +24,15 @@ const BOOTSTRAP_TIERS = [
   { key: "TIER_3", label: "Tier 3", rank: 3, minCtcLpa: 0, maxCtcLpa: 6 },
 ];
 
-export async function ensureBatch(year: number): Promise<BatchModel> {
-  const existing = await prisma.batch.findUnique({ where: { year } });
+export async function ensureBatch(
+  year: number,
+  client: Pick<PrismaClient, "batch"> = prisma,
+): Promise<BatchModel> {
+  const existing = await client.batch.findUnique({ where: { year } });
   if (existing) return existing;
 
-  const template = await prisma.batch.findFirst({
+  const template = await client.batch.findFirst({
+    where: { year: { lt: 9000 } },
     orderBy: { year: "desc" },
     include: { tierConfigs: true, submissionRule: true },
   });
@@ -44,8 +49,10 @@ export async function ensureBatch(year: number): Promise<BatchModel> {
 
   const policy = template?.submissionRule;
 
-  return prisma.batch.create({
-    data: {
+  return client.batch.upsert({
+    where: { year },
+    update: {},
+    create: {
       year,
       // Seasons have opened on 1 August of the preceding year for as long as
       // the source sheets record. Adjustable from the admin console.
