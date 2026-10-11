@@ -15,7 +15,11 @@ export default async function AdminLayout({
     ["/admin/reports", "Reports"],
     ["/admin/audit", "Audit log"],
   ];
-  if (actor.role === "SUPER_ADMIN") links.push(["/admin/users", "Access"]);
+  if (actor.role === "SUPER_ADMIN")
+    links.push(
+      ["/admin/archive", "Historical archive"],
+      ["/admin/users", "Access"],
+    );
   return (
     <>
       <nav

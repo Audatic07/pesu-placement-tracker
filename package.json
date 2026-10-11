@@ -29,6 +29,7 @@
     "demo:9998": "tsx --conditions=react-server scripts/demo/index.ts",
     "demo:login": "tsx scripts/demo/login.ts",
     "admin:verify": "tsx --conditions=react-server scripts/admin/verify.ts",
+    "archive:verify": "tsx --conditions=react-server scripts/admin/verify-archive.ts",
     "backup:restore": "tsx --conditions=react-server scripts/admin/restore.ts",
     "backup:create": "tsx --conditions=react-server scripts/admin/backup.ts"
   },

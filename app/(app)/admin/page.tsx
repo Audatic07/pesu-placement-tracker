@@ -26,7 +26,10 @@ export default async function AdminPage() {
       where: { role: { in: ["ADMIN", "SUPER_ADMIN"] }, isSuspended: false },
     }),
     prisma.auditLog.count({
-      where: { entityType: "AdminImport", action: "IMPORT" },
+      where: {
+        entityType: { in: ["AdminImport", "PlacementArchive"] },
+        action: "IMPORT",
+      },
     }),
   ]);
   return (
@@ -117,6 +120,9 @@ export default async function AdminPage() {
               </p>
               <div className="flex flex-wrap gap-3">
                 <Button href="/admin/users">Manage access</Button>
+                <Button href="/admin/archive">
+                  Publish historical archive
+                </Button>
                 <Link
                   href="/api/admin/backup"
                   prefetch={false}

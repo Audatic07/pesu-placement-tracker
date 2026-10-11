@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
+import { gunzipSync } from "node:zlib";
 import { prisma } from "../../lib/db";
 import { BACKUP_TABLES } from "../../lib/admin/backup";
 
@@ -9,7 +10,11 @@ async function main() {
     throw new Error(
       "Usage: npm run backup:restore -- /private/backup.json --empty-database",
     );
-  const backup = JSON.parse(await readFile(path, "utf8"));
+  const bytes = await readFile(path);
+  const json = path.endsWith(".gz")
+    ? gunzipSync(bytes, { maxOutputLength: 512 * 1024 * 1024 })
+    : bytes;
+  const backup = JSON.parse(json.toString("utf8"));
   if (
     backup.format !== "pesu-placement-backup" ||
     backup.version !== 1 ||

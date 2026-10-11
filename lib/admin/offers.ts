@@ -18,7 +18,10 @@ import { MAX_IMPORT_OUTCOMES, MAX_IMPORT_ROWS } from "./csv";
 // Imports run once even when two admins commit the same reviewed sheet at once.
 const WRITE_LOCK = 18472011;
 
-async function companyFor(tx: Prisma.TransactionClient, name: string) {
+export async function resolveAdminCompany(
+  tx: Prisma.TransactionClient,
+  name: string,
+) {
   const normalized = normalizeCompanyName(name);
   const alias = await tx.companyAlias.findUnique({ where: { normalized } });
   if (alias) return alias.companyId;
@@ -191,7 +194,7 @@ export async function saveAdminOffer(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK})`;
       await assertAdmin(tx, actorId);
       const refs = await references(tx, values);
-      const companyId = await companyFor(tx, values.companyName);
+      const companyId = await resolveAdminCompany(tx, values.companyName);
       if (edit) {
         // A row lock also protects edits racing with student deletion/moderation.
         await tx.$queryRaw`SELECT id FROM "Offer" WHERE id = ${edit.id} FOR UPDATE`;
@@ -353,7 +356,7 @@ export async function commitImport(
         batchIds = new Set<string>();
       for (const values of rows) {
         const refs = await references(tx, values);
-        const companyId = await companyFor(tx, values.companyName);
+        const companyId = await resolveAdminCompany(tx, values.companyName);
         batchIds.add(refs.batchId);
         for (let i = 0; i < values.headcount; i++) {
           const compensation = await tx.compensationPackage.create({
