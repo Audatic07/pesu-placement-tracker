@@ -112,8 +112,9 @@ than treating them as awarded compensation. Missing or ambiguous amounts are
 not estimated. The prepared submissions and database backups remain outside
 Git. See [DEPLOYMENT.md](DEPLOYMENT.md) for validation and cleanup requirements.
 
-The older `import:excel` utility remains for maintenance of legacy data; it is
-not the workflow used for the hand-prepared submissions.
+Admins can maintain outcomes at `/admin/offers` or upload reviewed UTF-8 CSV
+from Excel or Google Sheets at `/admin/imports`. Imports are atomic,
+fingerprinted and reversible. `import:excel` remains an offline legacy utility.
 
 ## Commands
 
@@ -127,7 +128,9 @@ not the workflow used for the hand-prepared submissions.
 | `npm run db:up` / `db:down` | Docker Postgres + pesu-auth |
 | `npm run db:migrate` | Apply migrations in development |
 | `npm run db:deploy` | Apply migrations in production |
-| `npm run db:studio` | Prisma Studio |
+| `npm run db:studio` | Prisma Studio (local operator access) |
+| `npm run admin:verify` | Admin/import/access checks on a disposable localhost DB |
+| `npm run backup:create` / `backup:restore` | Private backup and empty-database restore |
 | `npm run seed` | Configuration rows (idempotent) |
 | `npm run demo:9998` | Synthetic demo batch |
 | `npm run demo:login` | Session cookie for a demo student (development only) |
@@ -135,7 +138,10 @@ not the workflow used for the hand-prepared submissions.
 
 ## Deploying
 
-See [DEPLOYMENT.md](DEPLOYMENT.md).
+See [DEPLOYMENT.md](DEPLOYMENT.md). Vercel + Neon is the default; Docker and
+production Compose support other Node/PostgreSQL hosts. Production secrets stay
+out of previews and forks. Owners recover through verified PESU login for the
+host-configured `SUPER_ADMIN_SRN`, then manage other admins in the console.
 
 ## Contributing
 

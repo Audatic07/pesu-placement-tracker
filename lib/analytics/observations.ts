@@ -133,12 +133,12 @@ async function readBatchObservations(batchYear: number): Promise<StoredObservati
       bondMonths: offer.bondMonths,
       internshipDurationMonths: offer.internshipDurationMonths,
       verification: offer.verification,
-      date: (offer.offerDate ?? firstRound ?? (offer.source === "OFFICIAL_IMPORT" ? null : offer.createdAt))?.toISOString() ?? null,
+      date: (offer.offerDate ?? firstRound ?? (offer.source !== "SELF_REPORTED" ? null : offer.createdAt))?.toISOString() ?? null,
     };
   });
 }
 
-const readStoredBatch = cacheBatchRead("offer-observations-v4", readBatchObservations);
+const readStoredBatch = cacheBatchRead("offer-observations-v5", readBatchObservations);
 const loadBatch = cache(async (year: number): Promise<Observation[]> =>
   (await readStoredBatch(year)).map((row) => Object.assign({}, row, {
     date: row.date ? new Date(row.date) : null,

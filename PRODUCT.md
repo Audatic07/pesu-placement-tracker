@@ -29,8 +29,9 @@ from roughly August to February. They are anxious, comparing themselves to peers
 and making real decisions (accept this offer or hold out for a better tier) on
 incomplete information. A minority are juniors planning a year ahead.
 
-**One admin** (the project owner) resolving reports of suspicious data, with room
-for more moderators later.
+**Rotating student administrators** maintaining historical outcomes, reviewing
+imports, correcting records and resolving reports. Owners manage access and
+handover; administrative entry is independent of student quotas.
 
 ## What the visitor is here to do
 
@@ -92,7 +93,7 @@ high but never crowded; colour is restrained and carries meaning only.
 | Company profile | Operate | Year-over-year history for one recruiter. |
 | Offer detail | Read | Compensation breakdown and the process notes. |
 | Submission wizard | Operate | Quota-bound, one offer at a time. |
-| Admin console | Operate | Report queue and audit trail. |
+| Admin console | Operate | Outcomes, imports, policies, diagnostics, reports, backups and owner access. |
 | Login | Operate | Single purpose; already built. |
 
 Phone and desktop are equally important and each is designed as a first-class

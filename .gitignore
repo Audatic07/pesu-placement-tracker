@@ -56,3 +56,6 @@ yarn-error.log*
 
 # Local data curation and database backups
 /.local/
+*.dump
+*private-backup*.json
+/.vercel/

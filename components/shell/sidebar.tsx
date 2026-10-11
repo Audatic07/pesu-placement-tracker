@@ -66,6 +66,8 @@ const PERSONAL: NavItem[] = [
 const ANONYMOUS: NavItem[] = [{ href: "/submit", label: "Add an offer", icon: Plus }];
 
 const ADMIN: NavItem[] = [
+  { href: "/admin", label: "Operations", icon: LayoutDashboard },
+  { href: "/admin/offers", label: "Manage data", icon: Building2, prefix: true },
   { href: "/admin/reports", label: "Reports", icon: ShieldAlert, prefix: true },
   { href: "/admin/audit", label: "Audit log", icon: FileText },
 ];

@@ -31,7 +31,10 @@ export default async function CompanyPage({ params, searchParams }: {
       children: { select: { name: true, slug: true } },
       aliases: { select: { alias: true } },
       offers: {
-        where: { deletedAt: null, verification: { not: "REMOVED" } },
+        where: {
+          deletedAt: null, verification: { not: "REMOVED" },
+          ...(process.env.NODE_ENV === "production" ? { batch: { year: { lt: 9000 } } } : {}),
+        },
         take: student ? 50 : 0,
         select: {
           id: true, roleTitle: true, cycle: true, nameVisibility: true, verification: true,
