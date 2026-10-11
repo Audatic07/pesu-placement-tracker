@@ -7,6 +7,8 @@ import {
   slugify,
 } from "./lib/companies";
 import { classifyRoleFamily, natureFromHeadcounts, refineNatureFromNote } from "./lib/roles";
+import { expandRoleIntoOffers, loadTaxRegimeFor } from "./lib/offers";
+import { reconcileStandIns } from "@/lib/offers/standins";
 import type { ReviewLog } from "./lib/review";
 import type { ImportedDrive, ImportedWorkbook } from "./sheets/types";
 
@@ -29,6 +31,10 @@ export type LoadResult = {
   drives: number;
   roles: number;
   rounds: number;
+  /** Offer rows expanded from the published headcounts. */
+  offers: number;
+  /** Of those, the ones that stepped aside for a student's own submission. */
+  yielded: number;
 };
 
 type CompanyRef = { id: string; name: string };
@@ -248,6 +254,22 @@ export async function loadWorkbook(
     });
   }
 
+  // Outside the `if` on purpose. `Offer.driveRoleId` is `onDelete: SetNull`, so
+  // an expanded offer OUTLIVES the drive it came from: remove those drives by
+  // any other route — a manual cleanup, a cascade from somewhere else — and the
+  // next run finds no prior drives, skips a cleanup nested in that branch, and
+  // stacks a second full copy of every headcount on top of the first. Keying
+  // off the batch rather than off the drives that happen to still exist is what
+  // makes a re-import idempotent.
+  //
+  // Student submissions are never touched: this is scoped to OFFICIAL_IMPORT.
+  const staleOffers = await prisma.offer.deleteMany({
+    where: { batchId: batch.id, source: "OFFICIAL_IMPORT" },
+  });
+  if (staleOffers.count > 0) {
+    console.log(`  removed ${staleOffers.count} offer row(s) from a prior import`);
+  }
+
   // Deleting a drive cascades to its roles, but a compensation package is not
   // owned by the role that points at it — several roles can share one — so the
   // packages survive as orphans. Without this, every re-import leaves the last
@@ -276,6 +298,11 @@ export async function loadWorkbook(
   let driveCount = 0;
   let roleCount = 0;
   let roundCount = 0;
+  let offerCount = 0;
+
+  // Identical for every row in a run, and deriveCompensation is pure, so this
+  // is read once rather than once per expanded offer.
+  const regime = await loadTaxRegimeFor(prisma);
 
   for (const { companyId, companyName, visitNumber, blocks } of groups) {
     const first = blocks[0]!;
@@ -434,6 +461,22 @@ export async function loadWorkbook(
       roleCount += 1;
       roundCount += role.rounds.length;
 
+      // The headcount becomes the offer rows it stands for. The DriveRole above
+      // keeps the sheet's own figure so `verify.ts` can still check the import
+      // against the published footer totals; these rows are what the app reads.
+      offerCount += await expandRoleIntoOffers(prisma, {
+        role,
+        driveRoleId: driveRole.id,
+        companyId: company.id,
+        batchId: batch.id,
+        cycle: first.cycle,
+        tierKey: resolvedTier,
+        roleFamily: classifyRoleFamily(role.title),
+        regime,
+        eligibleBranches,
+        announcedCgpaCutoff: gpa.numeric,
+      });
+
       if (parsed.deriveTierFromCtc && resolvedTier === null && role.ctcLpa !== null) {
         review.add({
           severity: "UNRESOLVED",
@@ -470,10 +513,45 @@ export async function loadWorkbook(
     }
   }
 
-  return {
+  // A fresh expansion stands for everyone the sheet counted, including the
+  // students who have since filed for themselves. Each of those displaces a
+  // stand-in again, so the batch counts each person once whichever way their
+  // placement reached the table. See lib/offers/standins.ts.
+  const yielded = await reconcileStandIns(prisma, batch.id);
+
+  const result: LoadResult = {
     companies: resolver.createdCount,
     drives: driveCount,
     roles: roleCount,
     rounds: roundCount,
+    offers: offerCount,
+    yielded,
   };
+
+  // The import is a consequential write and belongs in the audit trail like
+  // every other one. `createOffer` records one CREATE per offer with the student
+  // as actor; an expansion has no actor and its rows are one published figure
+  // repeated, so the honest unit here is the run: one IMPORT entry per batch,
+  // carrying what was replaced and what was written. `recordAudit` is not used
+  // because it is `server-only` and reads request headers; this is the same
+  // row, written without either.
+  await prisma.auditLog.create({
+    data: {
+      actorId: null,
+      action: "IMPORT",
+      entityType: "Batch",
+      entityId: batch.id,
+      before: { importedOffers: staleOffers.count, importedDrives: priorDrives.length },
+      after: { batchYear: parsed.batchYear, ...result },
+      summary:
+        `Imported the batch of ${parsed.batchYear}: ${result.drives} drives, ${result.roles} roles, ` +
+        `${result.offers} offers expanded from published headcounts` +
+        (result.yielded > 0 ? ` (${result.yielded} yielded to students' own submissions)` : "") +
+        (staleOffers.count > 0 ? `, replacing ${staleOffers.count} from a prior import` : "") +
+        (process.argv.includes("--force") ? " (--force)" : "") +
+        ".",
+    },
+  });
+
+  return result;
 }

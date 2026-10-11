@@ -3,9 +3,12 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { BATCH_YEAR, REPORTS, STUDENTS, SUBMISSIONS } from "./dataset";
 import { createOffer } from "@/lib/offers/submit";
-import { parseOfferForm, type OfferInputValues } from "@/lib/offers/input";
+import { parseOfferForm, type OfferInputValues } from "@/lib/offers/schema";
 import { provisionStudent } from "@/lib/auth/provision";
-import { fileReport } from "@/lib/moderation/reports";
+import { fileReport, resolveReports, restoreOffer } from "@/lib/moderation/reports";
+import { expandRoleIntoOffers } from "../import/lib/offers";
+import type { ImportedRole } from "../import/sheets/types";
+import { normalizeCompanyName } from "@/lib/companies/name";
 import { getQuotaState } from "@/lib/policy/quota";
 import {
   getAnnouncedCutoffs,
@@ -71,8 +74,8 @@ function heading(text: string) {
 /**
  * Mirrors the field names in app/(app)/submit/offer-form.tsx exactly.
  *
- * Repeated inputs append, numbers travel as strings, and each component has a
- * hidden true/false field so unchecked boxes preserve row alignment.
+ * Repeated inputs append, numbers travel as strings, and checked one-time
+ * components carry their row index so unchecked boxes preserve alignment.
  */
 function toFormData(values: Omit<OfferInputValues, "batchYear">, batchYear: number): FormData {
   const form = new FormData();
@@ -92,10 +95,10 @@ function toFormData(values: Omit<OfferInputValues, "batchYear">, batchYear: numb
   set("baseLpa", values.baseLpa);
   set("stipendPerMonthInr", values.stipendPerMonthInr);
 
-  for (const component of values.components) {
+  for (const [index, component] of values.components.entries()) {
     form.append("componentKind", component.kind);
     form.append("componentAmount", String(component.amountLpa));
-    form.append("componentOneTime", component.isOneTime ? "true" : "false");
+    if (component.isOneTime) form.append("componentOneTime", String(index));
   }
 
   set("cgpa", values.cgpa);
@@ -673,6 +676,39 @@ async function verify(
     );
   }
 
+  // A higher offer closes the tiers below it. The per-tier cap alone would let
+  // the same Tier 1 holder record a Tier 3 offer next; the policy says the
+  // tiers below a held offer are closed. Filed with a package that resolves
+  // to Tier 3 by someone who holds Tier 1 and has room in the full-time total.
+  const lowerTierBlocked = await (async () => {
+    const holders = await prisma.offer.findMany({
+      where: { batchId: batch.id, cycle: "FULL_TIME", tierKey: "TIER_1" },
+      select: { student: { include: { offers: { where: { batchId: batch.id, cycle: "FULL_TIME" } } } } },
+    });
+    const holder = holders.find((row) => row.student && row.student.offers.length < 3)?.student;
+    if (!holder) return null;
+    const parsed = parseOfferForm(
+      toFormData(
+        {
+          ...SUBMISSIONS.find(
+            (entry) => entry.offer.cycle === "FULL_TIME" && (entry.offer.ctcLpa ?? 99) < 6,
+          )!.offer,
+          companyName: "Windrose Staffing",
+        },
+        BATCH_YEAR,
+      ),
+    );
+    if (!parsed.success) return null;
+    return createOffer(holder, parsed.data);
+  })();
+  if (lowerTierBlocked) {
+    check(
+      "a lower-tier offer after a higher one is refused",
+      !lowerTierBlocked.ok,
+      lowerTierBlocked.ok ? "IT WAS ACCEPTED" : `"${lowerTierBlocked.error}"`,
+    );
+  }
+
   // A student may only file against their own batch. The form posts a batch
   // year, so this cannot be enforced by hiding a field — it is checked against
   // the student's own graduating year inside createOffer.
@@ -694,6 +730,138 @@ async function verify(
         result.ok ? "IT WAS ACCEPTED" : `"${result.error}"`,
       );
     }
+  }
+
+  // --- stand-ins ------------------------------------------------------------
+  // A sheet's headcount stands in for the people who have not recorded. Once one
+  // of them files, the placement has to be counted exactly once: the stand-in
+  // yields to the submission, and comes back if that submission is removed.
+  // Staged here with a two-person headcount for a company nobody has recorded at,
+  // exactly as the import would write it.
+  const standIns = await (async () => {
+    const name = "Harrowgate Systems";
+    const slug = "harrowgate-systems";
+    const company = await prisma.company.upsert({
+      where: { slug },
+      update: {},
+      create: { name, slug, aliases: { create: [{ alias: name, normalized: normalizeCompanyName(name) }] } },
+    });
+    await prisma.offer.deleteMany({ where: { companyId: company.id, batchId: batch.id } });
+    await prisma.drive.deleteMany({ where: { companyId: company.id, batchId: batch.id } });
+
+    const drive = await prisma.drive.create({
+      data: {
+        companyId: company.id,
+        batchId: batch.id,
+        cycle: "FULL_TIME",
+        source: "OFFICIAL_IMPORT",
+        eligibleBranches: [],
+        eligiblePrograms: [],
+        roles: {
+          create: [{ title: "Graduate Engineer", roleFamily: "SDE", nature: "FTE_ONLY", tierKey: "TIER_2", placedFte: 2 }],
+        },
+      },
+      include: { roles: true },
+    });
+    const role: ImportedRole = {
+      title: "Graduate Engineer",
+      stipendPerMonthInr: null,
+      baseLpa: null,
+      ctcLpa: 9,
+      sharesCompensationWithPrevious: false,
+      disclosure: "DISCLOSED",
+      compensationNote: null,
+      components: [],
+      placedInternship: null,
+      placedFte: 2,
+      placedBoth: null,
+      locations: [],
+      bondMonths: null,
+      internshipDurationMonths: null,
+      note: null,
+      rounds: [],
+      sheetRow: 2,
+    };
+    const expanded = await expandRoleIntoOffers(prisma, {
+      role,
+      driveRoleId: drive.roles[0]!.id,
+      companyId: company.id,
+      batchId: batch.id,
+      cycle: "FULL_TIME",
+      tierKey: "TIER_2",
+      roleFamily: "SDE",
+      regime: null,
+      eligibleBranches: [],
+      announcedCgpaCutoff: null,
+    });
+
+    const standing = () =>
+      prisma.offer.count({
+        where: { companyId: company.id, batchId: batch.id, source: "OFFICIAL_IMPORT", deletedAt: null },
+      });
+    const shown = () =>
+      prisma.offer.count({
+        where: { companyId: company.id, batchId: batch.id, deletedAt: null, verification: { not: "REMOVED" } },
+      });
+
+    // Someone with room for a Tier 2 full-time offer: no full-time offer yet,
+    // so no per-tier cap and no tier floor in the way.
+    const student = await prisma.student.findFirst({
+      where: { graduationYear: BATCH_YEAR, role: "STUDENT", offers: { none: { cycle: "FULL_TIME" } } },
+    });
+    if (!student) return null;
+
+    const parsed = parseOfferForm(
+      toFormData(
+        {
+          ...SUBMISSIONS.find(
+            (entry) => entry.offer.cycle === "FULL_TIME" && (entry.offer.ctcLpa ?? 0) >= 6 && (entry.offer.ctcLpa ?? 99) < 12,
+          )!.offer,
+          companyName: name,
+          nature: "FTE_ONLY",
+        },
+        BATCH_YEAR,
+      ),
+    );
+    if (!parsed.success) return null;
+
+    const before = { standing: await standing(), shown: await shown() };
+    const recorded = await createOffer(student, parsed.data);
+    if (!recorded.ok) return { expanded, before, recorded, after: null, removed: null, restored: null };
+    const after = { standing: await standing(), shown: await shown() };
+
+    // The role gate for moderation lives in the admin action, not here; the
+    // library function records who acted, and for this run that is a student.
+    await resolveReports(student, recorded.offerId, "REMOVE", "Staged removal for the stand-in check.");
+    const removed = { standing: await standing(), shown: await shown() };
+    await restoreOffer(student, recorded.offerId);
+    const restored = { standing: await standing(), shown: await shown() };
+
+    return { expanded, before, recorded, after, removed, restored };
+  })();
+  if (standIns) {
+    check(
+      "a headcount of two expands into two stand-ins",
+      standIns.expanded === 2 && standIns.before.standing === 2 && standIns.before.shown === 2,
+      `${standIns.expanded} expanded, ${standIns.before.standing} standing, ${standIns.before.shown} shown`,
+    );
+    check(
+      "a student's own submission displaces one stand-in, and the company still shows two",
+      standIns.recorded.ok && standIns.after?.standing === 1 && standIns.after.shown === 2,
+      standIns.recorded.ok
+        ? `${standIns.after?.standing} standing, ${standIns.after?.shown} shown`
+        : `the submission was refused: ${standIns.recorded.error}`,
+    );
+    check(
+      "removing that submission brings the stand-in back",
+      standIns.removed?.standing === 2 && standIns.removed.shown === 2,
+      `${standIns.removed?.standing} standing, ${standIns.removed?.shown} shown`,
+    );
+    check(
+      "restoring it sends the stand-in aside again",
+      standIns.restored?.standing === 1 && standIns.restored.shown === 2,
+      `${standIns.restored?.standing} standing, ${standIns.restored?.shown} shown`,
+    );
   }
 
   const year = 2026;

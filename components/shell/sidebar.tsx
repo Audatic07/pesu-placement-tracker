@@ -1,7 +1,7 @@
 "use client";
 
-import { positiveInteger } from "@/lib/query-params";
 import Link from "next/link";
+import { positiveInteger } from "@/lib/query-params";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -11,14 +11,25 @@ import {
   ChevronDown,
   FileText,
   LayoutDashboard,
+  LogIn,
+  LogOut,
   Menu,
   Plus,
   ShieldAlert,
   User,
   X,
 } from "lucide-react";
+import { logout } from "@/app/(auth)/login/actions";
 
-/** Carry the selected batch across navigation in the query string. */
+/**
+ * The persistent sidebar.
+ *
+ * It carries the batch selector, because batch is the one dimension that scopes
+ * every screen — putting it in the shell means a student picks a year once and
+ * keeps it while moving around, instead of re-choosing on each page. It rides
+ * in the query string rather than the path so that a link someone shares keeps
+ * the whole view, filters included.
+ */
 
 type NavItem = {
   href: string;
@@ -26,19 +37,33 @@ type NavItem = {
   icon: typeof LayoutDashboard;
   /** Match nested routes too, e.g. /companies/meesho. */
   prefix?: boolean;
+  /**
+   * Fetch the whole page, data included, while the link is merely on screen,
+   * so the click is a paint rather than a round trip. Reserved for the pages
+   * everyone opens; a company profile or the submission form is fetched when
+   * it is actually asked for.
+   */
+  preload?: boolean;
 };
 
 const PRIMARY: NavItem[] = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/companies", label: "Companies", icon: Building2, prefix: true },
-  { href: "/calendar", label: "Season", icon: CalendarDays },
-  { href: "/analysis", label: "Analysis", icon: BarChart3 },
+  { href: "/overview", label: "Overview", icon: LayoutDashboard, preload: true },
+  { href: "/companies", label: "Companies", icon: Building2, prefix: true, preload: true },
+  { href: "/calendar", label: "Season", icon: CalendarDays, preload: true },
+  { href: "/analysis", label: "Analysis", icon: BarChart3, preload: true },
 ];
 
 const PERSONAL: NavItem[] = [
   { href: "/me", label: "My offers", icon: User },
   { href: "/submit", label: "Add an offer", icon: Plus },
 ];
+
+/**
+ * A signed-out visitor still gets the contribute link. "My offers" would be an
+ * empty room, but /submit is the whole reason to sign in, so it stays visible
+ * and asks for credentials at the point it actually needs them.
+ */
+const ANONYMOUS: NavItem[] = [{ href: "/submit", label: "Add an offer", icon: Plus }];
 
 const ADMIN: NavItem[] = [
   { href: "/admin/reports", label: "Reports", icon: ShieldAlert, prefix: true },
@@ -48,6 +73,7 @@ const ADMIN: NavItem[] = [
 export type SidebarProps = {
   batches: number[];
   activeBatch: number;
+  /** Null for a signed-out visitor: reading the tracker does not need an account. */
   student: { name: string; srn: string; role: string; branch: string | null } | null;
   pendingReportCount: number;
 };
@@ -62,6 +88,11 @@ export function Sidebar(props: SidebarProps) {
   // fallback when they have not chosen one.
   const fromUrl = positiveInteger(search.get("batch") ?? undefined, 0);
   const activeBatch = props.batches.includes(fromUrl) ? fromUrl : props.activeBatch;
+
+  // Signing in from the shell should return the visitor to the page they were
+  // reading, batch selection included, rather than dropping them on /overview.
+  const queryString = search.toString();
+  const currentUrl = queryString ? `${pathname}?${queryString}` : pathname;
 
   // Close the mobile drawer whenever navigation happens, otherwise it stays
   // over the page the user just asked for.
@@ -80,11 +111,10 @@ export function Sidebar(props: SidebarProps) {
       </button>
 
       {open ? (
-        <button
-          type="button"
-          aria-label="Close navigation"
+        <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setOpen(false)}
+          aria-hidden
         />
       ) : null}
 
@@ -110,8 +140,8 @@ export function Sidebar(props: SidebarProps) {
         <nav className="flex-1 overflow-y-auto px-2 pb-4">
           <NavGroup items={PRIMARY} pathname={pathname} />
 
-          <GroupLabel>Yours</GroupLabel>
-          <NavGroup items={PERSONAL} pathname={pathname} />
+          <GroupLabel>{props.student ? "Yours" : "Contribute"}</GroupLabel>
+          <NavGroup items={props.student ? PERSONAL : ANONYMOUS} pathname={pathname} />
 
           {props.student?.role === "ADMIN" || props.student?.role === "SUPER_ADMIN" ? (
             <>
@@ -125,18 +155,36 @@ export function Sidebar(props: SidebarProps) {
           ) : null}
         </nav>
 
-        <div className="border-t px-3 py-3" style={{ borderColor: "var(--line)" }}>
+        <div className="flex items-center gap-2 border-t px-3 py-3" style={{ borderColor: "var(--line)" }}>
           {props.student ? (
             <>
-              <div className="truncate text-[12px] font-medium">{props.student.name}</div>
-              <div className="tnum truncate text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-                {props.student.srn}
-                {props.student.branch ? ` · ${props.student.branch}` : ""}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px] font-medium">{props.student.name}</div>
+                <div className="tnum truncate text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                  {props.student.srn}
+                  {props.student.branch ? ` · ${props.student.branch}` : ""}
+                </div>
               </div>
+              <form action={logout}>
+                <button
+                  type="submit"
+                  title="Sign out"
+                  aria-label="Sign out"
+                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] transition-colors hover:bg-[var(--panel-hover)]"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  <LogOut size={15} />
+                </button>
+              </form>
             </>
           ) : (
-            <Link href="/login?next=%2Fsubmit" className="text-[13px] font-medium text-[var(--accent)]">
-              Sign in with PESU to submit
+            <Link
+              href={`/login?next=${encodeURIComponent(currentUrl)}`}
+              className="flex h-8 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 text-[13px] transition-colors hover:bg-[var(--panel-hover)]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <LogIn size={15} style={{ color: "var(--text-tertiary)" }} />
+              <span className="truncate">Sign in</span>
             </Link>
           )}
         </div>
@@ -184,6 +232,9 @@ function NavGroup({
           <li key={item.href}>
             <Link
               href={href}
+              // These pages are dynamic, so the default prefetch stops at the
+              // loading boundary; `true` fetches the rendered page as well.
+              prefetch={item.preload ? true : undefined}
               aria-current={active ? "page" : undefined}
               className="flex h-[30px] items-center gap-2.5 rounded-[var(--radius-control)] px-2 text-[13px] transition-colors"
               style={{
@@ -220,7 +271,7 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        aria-controls="batch-options"
+        aria-haspopup="listbox"
         className="flex h-8 w-full items-center gap-2 rounded-[var(--radius-control)] px-2 text-left transition-colors"
         style={{ background: open ? "var(--panel-hover)" : "transparent" }}
       >
@@ -240,7 +291,6 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
 
       {open ? (
         <ul
-          id="batch-options"
           className="absolute left-0 right-0 top-9 z-10 overflow-hidden rounded-[var(--radius-panel)] border py-1"
           style={{
             borderColor: "var(--line-strong)",

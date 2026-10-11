@@ -72,6 +72,7 @@ export default async function SubmitPage() {
           quota={quota}
           companySuggestions={companies.map((company) => company.name)}
           branches={branches}
+          draftKey={`submission-draft:${student.id}:${quota.batchYear}`}
         />
       </div>
     </>

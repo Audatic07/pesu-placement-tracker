@@ -1,5 +1,6 @@
 import type { OfferCycle, WorkMode } from "@/generated/prisma/enums";
 import "server-only";
+import { computeOutlook, type CgpaOutlook } from "./outlook";
 import { prisma } from "@/lib/db";
 import { cacheBatchRead } from "./cache";
 import { getTierConfigs } from "./config";
@@ -464,6 +465,29 @@ export const getCgpaVersusPackage = cacheBatchRead("cgpa-packages-v1", async (
     })),
   );
 });
+
+export async function getCgpaOutlook(batchYear: number, cgpa: number): Promise<CgpaOutlook> {
+  const [tiers, bars, offers] = await Promise.all([
+    getTierConfigs(batchYear),
+    getAnnouncedCutoffs(batchYear),
+    prisma.offer.findMany({
+      where: {
+        batch: { year: batchYear },
+        deletedAt: null,
+        verification: { notIn: ["DISPUTED", "REMOVED"] },
+        cgpa: { not: null },
+        compensation: { ctcLpa: { not: null } },
+      },
+      select: { cgpa: true, tierKey: true, compensation: { select: { ctcLpa: true } } },
+    }),
+  ]);
+  return computeOutlook(cgpa, bars, offers.flatMap((offer) =>
+    offer.cgpa === null || offer.compensation?.ctcLpa == null ? [] : [{
+      cgpa: Number(offer.cgpa),
+      ctcLpa: Number(offer.compensation.ctcLpa),
+      tierKey: offer.tierKey,
+    }]), tiers);
+}
 
 export type SeasonProgressPoint = { dayOffset: number; cumulativeOffers: number };
 

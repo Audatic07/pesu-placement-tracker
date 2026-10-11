@@ -97,3 +97,8 @@ high but never crowded; colour is restrained and carries meaning only.
 
 Phone and desktop are equally important and each is designed as a first-class
 layout rather than one adapting to the other.
+
+Submission drafts stay on the device and validation uses the same schema on
+the client and server. A CGPA outlook shows announced eligibility and privacy
+gated peer outcomes. A historical headcount entry can yield to the matching
+student submission and return if that submission is removed.

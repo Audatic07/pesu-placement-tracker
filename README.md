@@ -155,3 +155,8 @@ MIT. See [LICENSE](LICENSE).
 [DESIGN.md](DESIGN.md) records the design system as built. Read both before
 proposing a change to how anything looks or reads — several of the constraints
 in them are decisions, not defaults.
+
+The submission form checks fields as they are typed and retains an unsent draft
+on the current device, scoped to the student and batch. Analysis can also show
+cohort outcomes around a chosen CGPA. Anonymous historical outcomes yield to a
+matching student submission so the same placement is counted once.

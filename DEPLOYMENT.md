@@ -36,8 +36,10 @@ copy production database credentials into a pull request preview.
 
 ## Release
 
-Builds do not mutate the database. `vercel-build` only builds Next.js; this also
-means preview builds cannot migrate production accidentally.
+Builds do not mutate the database. `vercel-build` runs the read-only
+`prisma migrate status` check before building Next.js. Pending migrations fail
+the deployment before it replaces the running site. Apply migrations explicitly;
+preview builds cannot migrate production accidentally.
 
 1. Run lint, typecheck, tests and a production build on Node.js 22.
 2. Take a database backup and confirm which database the release will update.
@@ -50,6 +52,10 @@ means preview builds cannot migrate production accidentally.
 6. Check `/api/health`, public `/overview`, and protected `/submit`. Confirm a
    test submission changes `/api/data-version` and another open dashboard
    refreshes automatically.
+
+The migration status check also applies to isolated preview databases. A failed
+check is a release prerequisite, not an instruction to run migrations during a
+build. Ordinary `npm run build` remains independent of database connectivity.
 
 Run `npm run seed` only when initializing a new database or deliberately
 restoring default configuration. It updates tier and tax rows and can overwrite

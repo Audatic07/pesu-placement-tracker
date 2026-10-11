@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { submitOffer, type SubmitState } from "./actions";
+import { rowCount, useDraft, type DraftFields } from "./use-draft";
 import {
   Checkbox,
   FormSection,
@@ -11,7 +12,9 @@ import {
   TextArea,
   TextInput,
 } from "@/components/forms/fields";
+import { formatLpa } from "@/lib/format";
 import type { QuotaState } from "@/lib/policy/quota";
+import { isValidatedField, validateField, type FieldErrors } from "@/lib/offers/validate";
 
 /**
  * The submission form.
@@ -98,14 +101,83 @@ export function OfferForm({
   quota,
   companySuggestions,
   branches,
+  draftKey,
 }: {
   quota: QuotaState;
   companySuggestions: string[];
   branches: Array<{ code: string; name: string }>;
+  /** Scopes the unsent draft to this student and batch. */
+  draftKey: string;
 }) {
   const [state, formAction] = useActionState<SubmitState, FormData>(submitOffer, {});
   const [componentRows, setComponentRows] = useState<number[]>([0]);
   const [roundRows, setRoundRows] = useState<number[]>([0, 1]);
+
+  // The draft restores as many rows as it was saved with; the values land in
+  // them on the render after. See use-draft.ts.
+  const formRef = useRef<HTMLFormElement>(null);
+  const restoreRows = useCallback((fields: DraftFields) => {
+    const components = rowCount(fields, "componentKind");
+    const rounds = rowCount(fields, "roundKind");
+    if (components > 0) setComponentRows(Array.from({ length: components }, (_, i) => i));
+    if (rounds > 0) setRoundRows(Array.from({ length: rounds }, (_, i) => i));
+  }, []);
+  const draft = useDraft(formRef, draftKey, restoreRows);
+
+  // A refused submission leaves the student on the form with their answers in
+  // front of them; the draft has to outlive it.
+  useEffect(() => {
+    if (state.error) draft.markFailed();
+  }, [state, draft]);
+
+  // Checked as they are typed, against the schema the action validates with.
+  // The inputs stay uncontrolled: the handlers below read the changed control
+  // off the event and keep only the verdicts. A required field is judged on
+  // blur, so an empty form does not open covered in red; a number is judged on
+  // every keystroke, because "11" in the CGPA box is wrong the moment it is
+  // there. The server still decides — see lib/offers/validate.ts.
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  const judge = (target: EventTarget | null, form: HTMLFormElement, typing: boolean) => {
+    if (
+      !(target instanceof HTMLInputElement) &&
+      !(target instanceof HTMLTextAreaElement) &&
+      !(target instanceof HTMLSelectElement)
+    ) {
+      return;
+    }
+    const { name } = target;
+    if (!isValidatedField(name)) return;
+
+    const repeated = form.querySelectorAll(`[name="${name}"]`);
+    const key = repeated.length > 1 ? `${name}:${[...repeated].indexOf(target)}` : name;
+    const ctcLpa = (form.elements.namedItem("ctcLpa") as HTMLInputElement | null)?.value;
+
+    setFieldErrors((current) => {
+      const next = { ...current };
+      const verdict = (forName: typeof name, forKey: string, value: string, wasTyping: boolean) => {
+        const isText = forName === "companyName" || forName === "roleTitle";
+        // Typing into a required text field only ever clears its error.
+        if (isText && wasTyping && !next[forKey]) return;
+        const message = validateField(forName, value, { ctcLpa });
+        if (message) next[forKey] = message;
+        else delete next[forKey];
+      };
+      verdict(name, key, target.value, typing);
+      // The base is judged against the CTC, so a change to the CTC re-judges it.
+      if (name === "ctcLpa") {
+        const base = form.elements.namedItem("baseLpa") as HTMLInputElement | null;
+        if (base) verdict("baseLpa", "baseLpa", base.value, false);
+      }
+      return next;
+    });
+  };
+
+  /** A live verdict wins over the server's, which is stale once the field changes. */
+  const errorFor = (key: string): string | undefined =>
+    fieldErrors[key] ?? (state.field === key ? state.error : undefined);
+
+  const liveErrorCount = Object.keys(fieldErrors).length;
 
   const available = quota.slots.filter((slot) => slot.remaining > 0);
   const exhausted = quota.slots.filter((slot) => slot.remaining === 0);
@@ -123,8 +195,47 @@ export function OfferForm({
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    // The form delegates blur events from its native inputs for field validation.
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    <form
+      ref={formRef}
+      action={formAction}
+      onInput={(event) => {
+        draft.save();
+        judge(event.target, event.currentTarget, true);
+      }}
+      onChange={draft.save}
+      onBlur={(event) => judge(event.target, event.currentTarget, false)}
+      onSubmit={draft.markSubmitted}
+      className="flex flex-col gap-4"
+    >
       <input type="hidden" name="batchYear" value={quota.batchYear} />
+
+      {draft.restoredAt !== null ? (
+        <p
+          className="flex items-center gap-3 rounded-[var(--radius-control)] px-3 py-2 text-[12px]"
+          style={{ background: "var(--panel)", color: "var(--text-secondary)", boxShadow: "inset 0 0 0 1px var(--line)" }}
+        >
+          <span className="flex-1">
+            Picked up where you left off on{" "}
+            {new Date(draft.restoredAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.
+            Nothing has been sent yet.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              draft.discard();
+              formRef.current?.reset();
+              setComponentRows([0]);
+              setRoundRows([0, 1]);
+            }}
+            className="shrink-0"
+            style={{ color: "var(--accent)" }}
+          >
+            Start over
+          </button>
+        </p>
+      ) : null}
 
       {state.error ? (
         <p
@@ -150,7 +261,7 @@ export function OfferForm({
           list="company-suggestions"
           placeholder="Start typing…"
           autoComplete="off"
-          error={state.field === "companyName" ? state.error : undefined}
+          error={errorFor("companyName")}
           hint="Pick an existing name where one matches, so this joins up with previous years."
         />
         <datalist id="company-suggestions">
@@ -159,7 +270,13 @@ export function OfferForm({
           ))}
         </datalist>
 
-        <TextInput label="Role title" name="roleTitle" required placeholder="e.g. SDE 1" />
+        <TextInput
+          label="Role title"
+          name="roleTitle"
+          required
+          placeholder="e.g. SDE 1"
+          error={errorFor("roleTitle")}
+        />
 
         <Select
           label="Kind of offer"
@@ -193,7 +310,11 @@ export function OfferForm({
 
       <FormSection
         title="The money"
-        description="The headline number on its own hides a lot. Breaking it down is what lets everyone see how much of a package is actually cash — and your tier is worked out from the CTC, not chosen."
+        description={
+          quota.tierFloor
+            ? `The headline number on its own hides a lot. Breaking it down is what lets everyone see how much of a package is actually cash — and your tier is worked out from the CTC, not chosen. You already hold a ${quota.tierFloor.label} offer, which closes the tiers below it: a CTC under ${formatLpa(quota.tierFloor.minCtcLpa)} lands in a lower tier and will be refused.`
+            : "The headline number on its own hides a lot. Breaking it down is what lets everyone see how much of a package is actually cash — and your tier is worked out from the CTC, not chosen."
+        }
         columns={3}
       >
         <TextInput
@@ -204,6 +325,7 @@ export function OfferForm({
           min="0"
           placeholder="e.g. 18.5"
           hint="The headline figure."
+          error={errorFor("ctcLpa")}
         />
         <TextInput
           label="Fixed base (LPA)"
@@ -212,6 +334,7 @@ export function OfferForm({
           step="0.01"
           min="0"
           hint="What lands every month, before variable pay."
+          error={errorFor("baseLpa")}
         />
         <TextInput
           label="Stipend (₹ per month)"
@@ -220,6 +343,7 @@ export function OfferForm({
           step="1000"
           min="0"
           hint="For internships."
+          error={errorFor("stipendPerMonthInr")}
         />
       </FormSection>
 
@@ -229,15 +353,22 @@ export function OfferForm({
         columns={1}
       >
         <div className="flex flex-col gap-2">
-          {componentRows.map((row) => (
+          {componentRows.map((row, index) => (
             <div key={row} className="flex items-end gap-2">
               <div className="flex-1">
                 <Select label="Component" name="componentKind" options={COMPONENT_KINDS} />
               </div>
               <div className="w-32">
-                <TextInput label="LPA" name="componentAmount" type="number" step="0.01" min="0" />
+                <TextInput
+                  label="LPA"
+                  name="componentAmount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  error={errorFor(componentRows.length > 1 ? `componentAmount:${index}` : "componentAmount")}
+                />
               </div>
-              <OneTimeField />
+              <OneTimeField index={index} />
               {componentRows.length > 1 ? (
                 <button
                   type="button"
@@ -268,14 +399,30 @@ export function OfferForm({
         description="Shown in bands, never exactly, and never next to your name unless you choose to be named. This is what makes 'does CGPA actually matter' answerable."
         columns={3}
       >
-        <TextInput label="CGPA" name="cgpa" type="number" step="0.01" min="0" max="10" />
-        <TextInput label="Active backlogs" name="backlogsAtOffer" type="number" min="0" step="1" />
+        <TextInput
+          label="CGPA"
+          name="cgpa"
+          type="number"
+          step="0.01"
+          min="0"
+          max="10"
+          error={errorFor("cgpa")}
+        />
+        <TextInput
+          label="Active backlogs"
+          name="backlogsAtOffer"
+          type="number"
+          min="0"
+          step="1"
+          error={errorFor("backlogsAtOffer")}
+        />
         <TextInput
           label="Internships before this"
           name="priorInternshipCount"
           type="number"
           min="0"
           step="1"
+          error={errorFor("priorInternshipCount")}
         />
       </FormSection>
 
@@ -349,12 +496,14 @@ export function OfferForm({
           name="processNotes"
           rows={6}
           placeholder="What they asked, what caught you out, how long between rounds, anything you wish you had known."
+          error={errorFor("processNotes")}
         />
         <TextArea
           label="What you prepared with"
           name="preparationResources"
           rows={3}
           placeholder="Sheets, books, courses, past questions."
+          error={errorFor("preparationResources")}
         />
       </FormSection>
 
@@ -373,6 +522,7 @@ export function OfferForm({
             max="10"
             placeholder="e.g. 8.5"
             hint="Leave blank if it was resume-based or never stated."
+            error={errorFor("announcedCgpaCutoff")}
           />
           <Select
             label="Overall difficulty"
@@ -424,6 +574,7 @@ export function OfferForm({
           min="0"
           step="1"
           hint="In months. 0 or blank if there is none."
+          error={errorFor("bondMonths")}
         />
         <TextInput
           label="Internship length"
@@ -432,6 +583,7 @@ export function OfferForm({
           min="0"
           step="1"
           hint="In months, where the offer includes one."
+          error={errorFor("internshipDurationMonths")}
         />
       </FormSection>
 
@@ -451,26 +603,29 @@ export function OfferForm({
 
       <div className="flex items-center gap-3">
         <Submit />
-        <span className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-          You can edit or remove this afterwards.
+        <span
+          className="text-[12px]"
+          style={{ color: liveErrorCount > 0 ? "var(--critical)" : "var(--text-tertiary)" }}
+        >
+          {liveErrorCount > 0
+            ? `${liveErrorCount} ${liveErrorCount === 1 ? "field needs" : "fields need"} a look before this can be recorded.`
+            : "You can edit or remove this afterwards."}
         </span>
       </div>
     </form>
   );
 }
 
-function OneTimeField() {
-  const [checked, setChecked] = useState(false);
+function OneTimeField({ index }: { index: number }) {
   return (
     <label
       className="flex h-[30px] items-center gap-1.5 whitespace-nowrap text-[12px]"
       style={{ color: "var(--text-secondary)" }}
     >
-      <input type="hidden" name="componentOneTime" value={String(checked)} />
       <input
         type="checkbox"
-        checked={checked}
-        onChange={(event) => setChecked(event.target.checked)}
+        name="componentOneTime"
+        value={index}
         className="size-[14px] accent-[var(--accent-solid)]"
       />
       One-time

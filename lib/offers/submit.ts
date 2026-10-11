@@ -8,7 +8,8 @@ import { deriveCompensation } from "@/lib/comp/model";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { normalizeCompanyName, slugify } from "@/lib/companies/name";
 import type { OfferCycle } from "@/generated/prisma/enums";
-import type { OfferInputValues } from "./input";
+import type { OfferInputValues } from "./schema";
+import { yieldStandIn } from "./standins";
 import { median } from "@/lib/analytics/stats";
 import { loadTaxRegime } from "@/lib/comp/regime";
 import type { StudentModel } from "@/generated/prisma/models";
@@ -79,6 +80,7 @@ async function detectOutlier(
       deletedAt: null,
       verification: { notIn: ["DISPUTED", "REMOVED"] },
       compensation: { ctcLpa: { not: null } },
+      source: { not: "OFFICIAL_IMPORT" },
     },
     select: { compensation: { select: { ctcLpa: true } } },
   });
@@ -165,7 +167,7 @@ export async function createOffer(
   );
 
   // Keep the package and offer together: a failed offer must not leave an orphan.
-  const offer = await prisma.$transaction(async (tx) => {
+  const { offer, displaced } = await prisma.$transaction(async (tx) => {
     const compensation = await tx.compensationPackage.create({
       data: {
         stipendPerMonthInr: values.stipendPerMonthInr ?? null,
@@ -182,7 +184,7 @@ export async function createOffer(
       },
     });
 
-    return tx.offer.create({
+    const createdOffer = await tx.offer.create({
       data: {
         compensationId: compensation.id,
         studentId: student.id,
@@ -230,6 +232,14 @@ export async function createOffer(
         },
       },
     });
+    const displacedStandIn = await yieldStandIn(tx, {
+      id: createdOffer.id,
+      companyId: company.id,
+      batchId: batch.id,
+      cycle: values.cycle,
+      nature: values.nature,
+    });
+    return { offer: createdOffer, displaced: displacedStandIn };
   });
 
   await recomputeCorroboration(company.id, batch.id, values.cycle);
@@ -239,9 +249,10 @@ export async function createOffer(
     action: "CREATE",
     entityType: "Offer",
     entityId: offer.id,
+    after: displaced ? { displacedStandIn: displaced } : undefined,
     summary: `${student.srn} recorded an offer at ${values.companyName}${
       outlierNote ? " (flagged as an outlier)" : ""
-    }.`,
+    }${displaced ? ", replacing a row expanded from the batch's sheet" : ""}.`,
   });
 
   return { ok: true, offerId: offer.id, flagged: outlierNote !== null };
@@ -258,7 +269,7 @@ export async function recomputeCorroboration(
   cycle: OfferCycle,
 ): Promise<void> {
   const offers = await prisma.offer.findMany({
-    where: { companyId, batchId, cycle, deletedAt: null, source: "SELF_REPORTED" },
+    where: { companyId, batchId, cycle, deletedAt: null, source: { not: "OFFICIAL_IMPORT" } },
     select: { id: true, verification: true, compensation: { select: { ctcLpa: true } } },
   });
 

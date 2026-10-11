@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseOfferForm } from "@/lib/offers/input";
+import { parseOfferForm } from "@/lib/offers/schema";
 
 /**
  * The form decoder.
@@ -76,7 +76,7 @@ describe("parseOfferForm", () => {
         ...MINIMUM,
         componentKind: ["FIXED_BASE", "RSU", "JOINING_BONUS"],
         componentAmount: ["20", "15", "4"],
-        componentOneTime: ["false", "false", "true"],
+        componentOneTime: ["2"],
       }),
     );
 
@@ -96,7 +96,7 @@ describe("parseOfferForm", () => {
         ...MINIMUM,
         componentKind: ["FIXED_BASE", "VARIABLE_PAY"],
         componentAmount: ["20", ""],
-        componentOneTime: ["false", "false"],
+        componentOneTime: [],
       }),
     );
     expect(parsed.data?.components).toHaveLength(1);

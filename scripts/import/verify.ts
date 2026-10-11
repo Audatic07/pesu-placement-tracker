@@ -10,9 +10,16 @@ import type { ImportedWorkbook, SheetFooterStats } from "./sheets/types";
  * were produced by the spreadsheet, independently of anything here. If the
  * database reproduces them, the import is right. If it does not, the import is
  * wrong, and this reports that rather than quietly adjusting expectations.
+ *
+ * One check does not depend on a footer: the headcounts stored on `DriveRole`
+ * against the offer rows expanded from them. That comparison is entirely
+ * internal, so it holds for a workbook that publishes no totals at all, and it
+ * is what stops the expansion drifting from the figures it came from.
  */
 
 type Check = {
+  /** Printed under the line whether or not it matched. */
+  detail?: string;
   label: string;
   expected: number | null;
   actual: number | null;
@@ -207,9 +214,46 @@ export async function verifyAgainstFooters(
 
   checks.push({
     label: "All tabs: students placed",
-    expected: expectedGrandTotal || null,
+    // Null means "the source published no total", which is a property of the
+    // workbook, not of the number. A workbook that genuinely totals zero has
+    // still made a claim and must be checked, so this asks whether any footer
+    // was read rather than whether the sum happens to be truthy.
+    expected: parsed.footers.length === 0 ? null : expectedGrandTotal,
     actual: grandTotal,
     tolerance: 0,
+  });
+
+  // The expansion has to be lossless in both directions: one offer row per
+  // placed student, and no row the sheet did not account for. If these two ever
+  // disagree, the app is reporting a different number of placements than the
+  // source published — which is the whole thing this file exists to catch.
+  //
+  // Both sides come from the database, so unlike everything above this needs no
+  // footer and runs for every season, including the older workbooks that
+  // publish no totals of their own. It is the only fidelity check those get,
+  // which is exactly why it must not be skippable: `grandTotal || null` would
+  // have turned a real zero into "nothing to check against" and passed silently
+  // on the one shape most likely to mean the expander did nothing at all.
+  //
+  // Counted whether or not they still show: a stand-in that yielded to a
+  // student's own submission is still a row the expansion wrote, and the
+  // placement it stood for is still counted — once, by the person now.
+  const [expandedOffers, yielded] = await Promise.all([
+    prisma.offer.count({ where: { batchId: batch.id, source: "OFFICIAL_IMPORT" } }),
+    prisma.offer.count({
+      where: { batchId: batch.id, source: "OFFICIAL_IMPORT", yieldedToId: { not: null } },
+    }),
+  ]);
+
+  checks.push({
+    label: "All tabs: offer rows expanded from those headcounts",
+    expected: grandTotal,
+    actual: expandedOffers,
+    tolerance: 0,
+    detail:
+      yielded > 0
+        ? `${yielded} of them have yielded to students' own submissions and no longer show`
+        : undefined,
   });
 
   // Every tab's COUNTA of the company column, checked per tab. This covers the
@@ -262,7 +306,8 @@ export async function verifyAgainstFooters(
     const marker = matched ? "ok" : check.informational ? "--" : "XX";
     lines.push(
       `    ${marker} ${check.label}: sheet ${format(check.expected)}, imported ${format(actual)}` +
-        (!matched && check.note ? `\n          ${check.note}` : ""),
+        (!matched && check.note ? `\n          ${check.note}` : "") +
+        (check.detail ? `\n          ${check.detail}` : ""),
     );
   }
 

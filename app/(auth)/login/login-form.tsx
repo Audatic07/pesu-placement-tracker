@@ -10,8 +10,8 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-lg px-4 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-      style={{ background: "var(--color-accent-600)" }}
+      className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+      style={{ background: "var(--accent-solid)", color: "var(--accent-fg)" }}
     >
       {pending ? "Checking with PESU…" : "Sign in"}
     </button>
@@ -38,10 +38,10 @@ export function LoginForm({ next }: { next?: string }) {
           required
           placeholder="PES1UG23CS001"
           aria-describedby={state.error ? "login-error" : undefined}
-          className="h-11 w-full rounded-lg border px-3 text-sm outline-none transition-colors focus:border-[var(--color-accent-500)]"
+          className="h-11 w-full rounded-lg border px-3 text-sm outline-none transition-colors focus:border-[var(--accent)]"
           style={{
-            borderColor: "var(--border)",
-            background: "var(--surface)",
+            borderColor: "var(--line-strong)",
+            background: "var(--overlay)",
             color: "var(--text)",
           }}
         />
@@ -58,10 +58,10 @@ export function LoginForm({ next }: { next?: string }) {
           autoComplete="current-password"
           required
           aria-describedby={state.error ? "login-error" : undefined}
-          className="h-11 w-full rounded-lg border px-3 text-sm outline-none transition-colors focus:border-[var(--color-accent-500)]"
+          className="h-11 w-full rounded-lg border px-3 text-sm outline-none transition-colors focus:border-[var(--accent)]"
           style={{
-            borderColor: "var(--border)",
-            background: "var(--surface)",
+            borderColor: "var(--line-strong)",
+            background: "var(--overlay)",
             color: "var(--text)",
           }}
         />
@@ -73,8 +73,8 @@ export function LoginForm({ next }: { next?: string }) {
           role="alert"
           className="rounded-lg border px-3 py-2 text-sm"
           style={{
-            borderColor: "color-mix(in oklch, red 30%, var(--border))",
-            color: "color-mix(in oklch, red 55%, var(--text))",
+            borderColor: "color-mix(in oklch, var(--critical) 40%, var(--line))",
+            color: "var(--critical)",
           }}
         >
           {state.error}

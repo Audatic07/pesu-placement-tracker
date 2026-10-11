@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStudent } from "@/lib/auth/rbac";
 import { createOffer } from "@/lib/offers/submit";
-import { parseOfferForm } from "@/lib/offers/input";
+import { parseOfferForm } from "@/lib/offers/schema";
 
 export type SubmitState = {
   error?: string;
@@ -27,7 +27,11 @@ export async function submitOffer(
   const result = await createOffer(student, parsed.data);
   if (!result.ok) return { error: result.error, field: result.field };
 
-  revalidatePath("/me");
-  revalidatePath("/overview");
+  // Every page that shows offers, not only the two closest: the sidebar keeps
+  // prefetched copies of these, and the one figure a student is waiting to see
+  // after filing is their own.
+  for (const path of ["/me", "/overview", "/companies", "/calendar", "/analysis"]) {
+    revalidatePath(path);
+  }
   redirect(`/offers/${result.offerId}?new=1`);
 }

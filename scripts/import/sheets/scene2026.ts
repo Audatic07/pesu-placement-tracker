@@ -7,6 +7,7 @@ import {
   readFill,
   roundModeFromFill,
 } from "../lib/colors";
+import { cellText } from "../lib/cells";
 import { parseSheetDate, seasonWindowForBatch, type SeasonWindow } from "../lib/dates";
 import { parseAmountCell, parseCompensationNote } from "../lib/compensation";
 import { parseGpaCutoff } from "../lib/gpa";
@@ -35,7 +36,7 @@ import type {
  * failure rather than a database full of stipends in the CTC field.
  */
 
-type ColumnLayout = {
+export type ColumnLayout = {
   company: number;
   role: number;
   eligibleBranches: number | null;
@@ -52,7 +53,7 @@ type ColumnLayout = {
   note: number;
 };
 
-type TabSpec = {
+export type TabSpec = {
   sheet: string;
   /** First row containing data. */
   firstDataRow: number;
@@ -248,63 +249,6 @@ const TABS: TabSpec[] = [
 /** A row whose first column starts the footer summary block. */
 const FOOTER_LABEL =
   /^(total visited|grand total|highest|average|median|wt\.|weighted|total placed)/i;
-
-/**
- * The text a cell displays, whatever ExcelJS wrapped it in.
- *
- * The shapes matter more than they look. A plain string is the easy case; a
- * styled cell arrives as rich text; a formula arrives with its cached result;
- * and a HYPERLINK arrives as { text, hyperlink } — where the text is ITSELF
- * rich text when the link was styled. That last combination is why SUKI.AI
- * India Pvt Ltd was imported as a company called "[object Object]": the handler
- * asked whether the text was a string, it was an object, and the generic
- * fallback stringified the wrapper into a plausible-looking name.
- */
-function cellText(cell: Cell): string | null {
-  const value = cell.value;
-  if (value === null || value === undefined) return null;
-
-  /** Joins the runs of a rich-text object, or null if this is not one. */
-  const fromRichText = (candidate: unknown): string | null => {
-    if (candidate === null || typeof candidate !== 'object') return null;
-    if (!('richText' in candidate)) return null;
-    const runs = (candidate as { richText?: unknown }).richText;
-    if (!Array.isArray(runs)) return null;
-    const text = runs.map((run) => (run as { text?: string }).text ?? '').join('');
-    return text.trim() || null;
-  };
-
-  if (typeof value === 'object' && !(value instanceof Date)) {
-    const direct = fromRichText(value);
-    if (direct !== null) return direct;
-
-    if ('text' in value) {
-      const inner = (value as { text?: unknown }).text;
-      if (typeof inner === 'string') return inner.trim() || null;
-      // A hyperlink whose display text carries formatting.
-      const nested = fromRichText(inner);
-      if (nested !== null) return nested;
-    }
-
-    if ('result' in value) {
-      const result = (value as { result?: unknown }).result;
-      return result === null || result === undefined ? null : String(result).trim() || null;
-    }
-
-    // An Excel error cell — #REF!, #N/A, #VALUE!. It carries no text.
-    if ('error' in value) return null;
-  }
-
-  if (value instanceof Date) return value.toISOString();
-
-  const text = String(value).replace(/ /g, ' ').trim();
-
-  // A shape nobody anticipated. Writing "[object Object]" into the database
-  // would let the import report success while inventing a value; null leaves a
-  // gap the review log records and a human can act on.
-  if (!text || text === '[object Object]') return null;
-  return text;
-}
 
 function cellNumber(cell: Cell): number | null {
   const value = cell.value;
@@ -737,19 +681,60 @@ function readFooter(
   return stats;
 }
 
-export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
-  const batchYear = 2026;
-  const window = seasonWindowForBatch(batchYear);
+/** How to read one workbook in the colour-coded "Placement Scene" format. */
+export type ColourWorkbookSpec = {
+  batchYear: number;
+  tabs: TabSpec[];
+  /**
+   * Whether to collect each tab's own footer totals for verification. True for
+   * 2026, whose tabs carry the full navy summary block; false for a sheet whose
+   * footer is absent or too sparse to check against, so its fidelity rests on
+   * the review log instead.
+   */
+  emitFooters: boolean;
+  /** Passed straight through to the loader — see ImportedWorkbook. */
+  deriveTierFromCtc: boolean;
+};
+
+/**
+ * Reads any workbook in the "Placement Scene" colour-coded format: merged
+ * company blocks, meaning encoded in cell fill, and per-tab column layouts
+ * declared as TabSpecs.
+ *
+ * 2026 is its only caller today. It is a shared reader rather than 2026's own
+ * because that season is not the last one to use this format — the workbook is
+ * a template the placement cohort keeps reusing, and a second season reading it
+ * should differ only in its TabSpecs and whether a verifiable footer exists.
+ */
+export function readColourCodedWorkbook(
+  workbook: Workbook,
+  spec: ColourWorkbookSpec,
+  review: ReviewLog,
+): ImportedWorkbook {
+  const window = seasonWindowForBatch(spec.batchYear);
 
   const drives: ImportedDrive[] = [];
   const footers: SheetFooterStats[] = [];
 
-  for (const spec of TABS) {
-    const result = readTab(workbook, spec, window, review);
+  for (const tab of spec.tabs) {
+    const result = readTab(workbook, tab, window, review);
     drives.push(...result.drives);
-    footers.push(result.footer);
+    if (spec.emitFooters) footers.push(result.footer);
   }
 
+  return {
+    batchYear: spec.batchYear,
+    drives,
+    footers,
+    deriveTierFromCtc: spec.deriveTierFromCtc,
+  };
+}
+
+export function readScene2026(workbook: Workbook, review: ReviewLog): ImportedWorkbook {
   // Tiers come from the tabs. A role with no tier here has none by design.
-  return { batchYear, drives, footers, deriveTierFromCtc: false };
+  return readColourCodedWorkbook(
+    workbook,
+    { batchYear: 2026, tabs: TABS, emitFooters: true, deriveTierFromCtc: false },
+    review,
+  );
 }
