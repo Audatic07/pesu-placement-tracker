@@ -21,6 +21,7 @@ it refuses to run against a production build.
 ## Before you open a pull request
 
 ```bash
+npm run lint
 npm run typecheck
 npm test
 npm run build

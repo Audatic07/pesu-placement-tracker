@@ -1,3 +1,6 @@
+import { singleParams, type SearchParams } from "@/lib/query-params";
+import { formatLpa, formatCompactInr, formatDate } from "@/lib/format";
+import { WORK_MODE_LABELS, COMPONENT_LABELS, ROUND_LABELS } from "@/lib/offers/labels";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Flag, ShieldCheck, TriangleAlert } from "lucide-react";
@@ -11,51 +14,12 @@ import {
   StatGrid,
   StatusBadge,
   Tag,
-  formatCompactInr,
-  formatDate,
-  formatLpa,
   type Tone,
 } from "@/components/ui/primitives";
 import { ReportButton } from "./report-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Offer · PESU Placement Tracker" };
-
-const ROUND: Record<string, string> = {
-  PRE_PLACEMENT_TALK: "Pre-placement talk",
-  RESUME_SHORTLIST: "Resume shortlist",
-  ONLINE_ASSESSMENT: "Online assessment",
-  GROUP_DISCUSSION: "Group discussion",
-  TAKE_HOME_ASSIGNMENT: "Take-home assignment",
-  HACKATHON: "Hackathon",
-  TECHNICAL_INTERVIEW: "Technical interview",
-  SYSTEM_DESIGN: "System design",
-  MANAGERIAL: "Managerial",
-  HIRING_MANAGER: "Hiring manager",
-  HR: "HR",
-  OTHER: "Other",
-};
-
-const COMPONENT: Record<string, string> = {
-  FIXED_BASE: "Fixed base",
-  VARIABLE_PAY: "Variable pay",
-  JOINING_BONUS: "Joining bonus",
-  RETENTION_BONUS: "Retention bonus",
-  RELOCATION: "Relocation",
-  ESOP: "ESOPs",
-  RSU: "RSUs",
-  GRATUITY: "Gratuity",
-  PROVIDENT_FUND: "Provident fund",
-  INSURANCE: "Insurance",
-  PERKS: "Perks",
-  OTHER: "Other",
-};
-
-const WORK_MODE: Record<string, string> = {
-  ONSITE: "In office",
-  HYBRID: "Hybrid",
-  REMOTE: "Fully remote",
-};
 
 const VERIFICATION: Record<string, { label: string; tone: Tone; icon: typeof ShieldCheck }> = {
   UNVERIFIED: { label: "Not yet corroborated", tone: "neutral", icon: Flag },
@@ -70,10 +34,11 @@ export default async function OfferPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
   const viewer = await requireStudent();
-  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const [{ id }, rawQuery] = await Promise.all([params, searchParams]);
+  const query = singleParams(rawQuery);
 
   const offer = await prisma.offer.findUnique({
     where: { id },
@@ -114,7 +79,7 @@ export default async function OfferPage({
         title={`${offer.company.name} — ${offer.roleTitle}`}
         description={
           <>
-            {showName && offer.student ? offer.student.name : "Reported anonymously"}
+            {offer.source === "OFFICIAL_IMPORT" ? "Historical headcount record" : showName && offer.student ? offer.student.name : "Reported anonymously"}
             {offer.branch ? ` · ${offer.branch.code}` : ""} · Batch of {offer.batch.year}
             {isOwner ? " · This is yours" : ""}
           </>
@@ -196,7 +161,7 @@ export default async function OfferPage({
                 {[...cashComponents, ...nonCashComponents].map((component) => (
                   <tr key={component.id} style={{ borderBottom: "1px solid var(--line)" }}>
                     <td className="h-[34px] px-4">
-                      {COMPONENT[component.kind] ?? component.kind}
+                      {COMPONENT_LABELS[component.kind] ?? component.kind}
                       {component.isOneTime ? (
                         <span className="ml-2">
                           <Tag>one-time</Tag>
@@ -225,7 +190,7 @@ export default async function OfferPage({
           description="What the offer binds you to, and the bar the company announced to get it."
         >
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px] sm:grid-cols-3">
-            <Term label="Work mode">{WORK_MODE[offer.workMode] ?? "Not reported"}</Term>
+            <Term label="Work mode">{WORK_MODE_LABELS[offer.workMode] ?? "Not reported"}</Term>
             <Term label="Location">
               {offer.locations.length > 0 ? offer.locations.join(", ") : "Not reported"}
             </Term>
@@ -274,7 +239,7 @@ export default async function OfferPage({
                       {round.sequence}
                     </span>
                     <span className="text-[13px] font-medium">
-                      {ROUND[round.kind] ?? round.kind}
+                      {ROUND_LABELS[round.kind] ?? round.kind}
                     </span>
                     {round.heldOn ? (
                       <span className="tnum text-[12px]" style={{ color: "var(--text-tertiary)" }}>

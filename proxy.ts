@@ -1,26 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 
-/**
- * First-pass route gate. (Next.js 16 renamed this file convention from
- * `middleware` to `proxy`; the behaviour is unchanged.)
- *
- * It runs on the edge runtime and cannot reach the database, so it verifies
- * the cookie signature and nothing more. This is a redirect for convenience,
- * NOT the authorisation boundary — a valid-but-stale token (suspended account,
- * revoked role) still gets past here.
- *
- * The real decision is made by lib/auth/rbac.ts inside the request, where the
- * student's current role can actually be read. Every protected page and action
- * must call requireStudent/requireRole; passing this gate is not enough.
- */
+/** Verify the session signature before routing. Database authorization lives in lib/auth/rbac.ts. */
 
-const PUBLIC_PATHS = ["/login", "/api/health"];
+const PUBLIC_PATHS = ["/login", "/api/health", "/api/data-version", "/overview", "/analysis", "/companies", "/calendar"];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (
+    pathname === "/" ||
     PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
   ) {
     return NextResponse.next();

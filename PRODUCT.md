@@ -2,8 +2,9 @@
 
 ## What it is
 
-A placement-statistics app for PES University students, authenticated with their
-own PESU Academy credentials. It replaces a set of student-maintained Google
+A public placement-statistics app for PES University students. PESU Academy
+authentication is required for submissions and personal offer management.
+It replaces a set of student-maintained Google
 Sheets that had become the de-facto record of who hired whom, for how much, and
 what the process was like.
 
@@ -14,10 +15,12 @@ from those reports. Every figure the old spreadsheets buried — in a cell colou
 a merged range, or a note column — is a field a student fills in here, which is
 what lets it stay true after the spreadsheets stop being maintained.
 
-The imported sheets are a cold start, not a source. They seeded the company list
-and they give each recruiter a previous-years section on its own profile. No
-statistic about a batch is computed from them. A batch nobody has reported on
-shows that plainly rather than borrowing a number from 2026.
+Historical sheets are reviewed into ordinary anonymous offer submissions. Each
+stated headcount produces that many outcome records, using the same fields and
+analytics as future student submissions. Provenance stays in source notes;
+missing identities and unknown amounts are not invented. Batch figures count
+offer outcomes, since historical sheets cannot identify unique students across
+multiple employers.
 
 ## Who uses it
 
@@ -43,12 +46,9 @@ there.
   over four to five years, and SAP at 26 LPA of which 8 lakhs is free meals and
   transport. The app separates headline CTC, first-year cash, recurring cash, and
   an estimated take-home, and shows the gap between them.
-- **One live source, one archive, never averaged together.** Every batch figure
-  counts one row per person who filed. Imported history is aggregate — IBM placed
-  88 students, but not who, and at a package it advertised rather than one anyone
-  confirmed receiving. Mixing the two would answer "what did students get" with
-  "what companies published", so the archive is shown beside live figures and
-  labelled, never summed into them.
+- **One submission model.** Historical outcomes and student submissions share
+  batch totals, distributions, company trends and the timeline. Source labels
+  explain provenance without separating historical data from analysis.
 - **Anonymity is structural.** Offers are anonymous by default, exact CGPA is
   banded in public views, and no statistic is shown for a cohort below five
   records — including maximums, which are one person's package wearing a hat.

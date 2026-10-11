@@ -4,17 +4,7 @@ import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Login is the slowest request this app makes, and it is slow only when it
- * succeeds: a rejected credential comes back in about four seconds, while an
- * accepted one goes on to scrape a profile. See lib/auth/pesu.ts.
- *
- * Server actions inherit the segment config of the page that invokes them, so
- * this ceiling covers `signIn`. On a serverless host the platform's own cap
- * still applies and is usually lower — 60s on Vercel Hobby — which is why
- * PESU_AUTH_TIMEOUT_MS has to leave room for a retry inside it rather than
- * being set to the largest number that looks safe.
- */
+// Includes the bounded PESU-auth retries and local account provisioning.
 export const maxDuration = 60;
 
 export const metadata = {
@@ -55,7 +45,7 @@ export default async function LoginPage({
       >
         Your password is checked against PESU Academy and is never stored by
         this app — not in the database, not in a log, not in any form. It is
-        sent once to the PESU authentication service to confirm who you are,
+        sent to the PESU authentication service to confirm who you are,
         after which this app issues its own session.
       </p>
     </main>

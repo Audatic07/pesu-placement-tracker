@@ -1,4 +1,6 @@
-import { formatCount } from "@/components/ui/primitives";
+import type { Bucket } from "@/lib/analytics/stats";
+import { formatCount } from "@/lib/format";
+
 
 /**
  * Charts, rendered server-side as inline SVG.
@@ -46,7 +48,7 @@ export function TierBars({ data }: { data: BarDatum[] }) {
               <div
                 className="h-full rounded-full"
                 style={{
-                  width: `${max === 0 ? 0 : (datum.value / max) * 100}%`,
+                  width: `${(datum.value / max) * 100}%`,
                   background: ORDINAL[index] ?? ORDINAL[ORDINAL.length - 1],
                 }}
               />
@@ -63,7 +65,6 @@ export function TierBars({ data }: { data: BarDatum[] }) {
   );
 }
 
-export type Bucket = { lower: number; upper: number; count: number };
 
 export function Histogram({
   buckets,

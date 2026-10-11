@@ -6,7 +6,6 @@ import { Plus, X } from "lucide-react";
 import { submitOffer, type SubmitState } from "./actions";
 import {
   Checkbox,
-  Field,
   FormSection,
   Select,
   TextArea,
@@ -23,12 +22,6 @@ import type { QuotaState } from "@/lib/policy/quota";
  * is visibly optional, and the only truly required answers are the company, the
  * role and which kind of offer it was.
  */
-
-const CYCLES = [
-  { value: "FULL_TIME", label: "Full-time offer" },
-  { value: "SIX_MONTH_INTERNSHIP", label: "Six-month internship" },
-  { value: "SUMMER_INTERNSHIP", label: "Summer internship" },
-];
 
 const NATURES = [
   { value: "FTE_ONLY", label: "Full-time only" },
@@ -162,7 +155,7 @@ export function OfferForm({
         />
         <datalist id="company-suggestions">
           {companySuggestions.map((name) => (
-            <option key={name} value={name} />
+            <option key={name} value={name}>{name}</option>
           ))}
         </datalist>
 
@@ -244,13 +237,7 @@ export function OfferForm({
               <div className="w-32">
                 <TextInput label="LPA" name="componentAmount" type="number" step="0.01" min="0" />
               </div>
-              <label
-                className="flex h-[30px] items-center gap-1.5 whitespace-nowrap text-[12px]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                <input type="checkbox" name="componentOneTime" value="true" className="size-[14px] accent-[var(--accent-solid)]" />
-                One-time
-              </label>
+              <OneTimeField />
               {componentRows.length > 1 ? (
                 <button
                   type="button"
@@ -469,6 +456,25 @@ export function OfferForm({
         </span>
       </div>
     </form>
+  );
+}
+
+function OneTimeField() {
+  const [checked, setChecked] = useState(false);
+  return (
+    <label
+      className="flex h-[30px] items-center gap-1.5 whitespace-nowrap text-[12px]"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      <input type="hidden" name="componentOneTime" value={String(checked)} />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => setChecked(event.target.checked)}
+        className="size-[14px] accent-[var(--accent-solid)]"
+      />
+      One-time
+    </label>
   );
 }
 

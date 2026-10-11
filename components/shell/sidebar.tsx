@@ -1,5 +1,6 @@
 "use client";
 
+import { positiveInteger } from "@/lib/query-params";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -17,15 +18,7 @@ import {
   X,
 } from "lucide-react";
 
-/**
- * The persistent sidebar.
- *
- * It carries the batch selector, because batch is the one dimension that scopes
- * every screen — putting it in the shell means a student picks a year once and
- * keeps it while moving around, instead of re-choosing on each page. It rides
- * in the query string rather than the path so that a link someone shares keeps
- * the whole view, filters included.
- */
+/** Carry the selected batch across navigation in the query string. */
 
 type NavItem = {
   href: string;
@@ -55,7 +48,7 @@ const ADMIN: NavItem[] = [
 export type SidebarProps = {
   batches: number[];
   activeBatch: number;
-  student: { name: string; srn: string; role: string; branch: string | null };
+  student: { name: string; srn: string; role: string; branch: string | null } | null;
   pendingReportCount: number;
 };
 
@@ -67,7 +60,7 @@ export function Sidebar(props: SidebarProps) {
   // A server layout cannot read search params, so the shell resolves the active
   // batch here: the URL wins, and the student's own graduating year is the
   // fallback when they have not chosen one.
-  const fromUrl = Number.parseInt(search.get("batch") ?? "", 10);
+  const fromUrl = positiveInteger(search.get("batch") ?? undefined, 0);
   const activeBatch = props.batches.includes(fromUrl) ? fromUrl : props.activeBatch;
 
   // Close the mobile drawer whenever navigation happens, otherwise it stays
@@ -87,10 +80,11 @@ export function Sidebar(props: SidebarProps) {
       </button>
 
       {open ? (
-        <div
+        <button
+          type="button"
+          aria-label="Close navigation"
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setOpen(false)}
-          aria-hidden
         />
       ) : null}
 
@@ -119,7 +113,7 @@ export function Sidebar(props: SidebarProps) {
           <GroupLabel>Yours</GroupLabel>
           <NavGroup items={PERSONAL} pathname={pathname} />
 
-          {props.student.role === "ADMIN" || props.student.role === "SUPER_ADMIN" ? (
+          {props.student?.role === "ADMIN" || props.student?.role === "SUPER_ADMIN" ? (
             <>
               <GroupLabel>Admin</GroupLabel>
               <NavGroup
@@ -132,11 +126,19 @@ export function Sidebar(props: SidebarProps) {
         </nav>
 
         <div className="border-t px-3 py-3" style={{ borderColor: "var(--line)" }}>
-          <div className="truncate text-[12px] font-medium">{props.student.name}</div>
-          <div className="tnum truncate text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-            {props.student.srn}
-            {props.student.branch ? ` · ${props.student.branch}` : ""}
-          </div>
+          {props.student ? (
+            <>
+              <div className="truncate text-[12px] font-medium">{props.student.name}</div>
+              <div className="tnum truncate text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                {props.student.srn}
+                {props.student.branch ? ` · ${props.student.branch}` : ""}
+              </div>
+            </>
+          ) : (
+            <Link href="/login?next=%2Fsubmit" className="text-[13px] font-medium text-[var(--accent)]">
+              Sign in with PESU to submit
+            </Link>
+          )}
         </div>
       </aside>
     </>
@@ -218,7 +220,7 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-controls="batch-options"
         className="flex h-8 w-full items-center gap-2 rounded-[var(--radius-control)] px-2 text-left transition-colors"
         style={{ background: open ? "var(--panel-hover)" : "transparent" }}
       >
@@ -238,7 +240,7 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
 
       {open ? (
         <ul
-          role="listbox"
+          id="batch-options"
           className="absolute left-0 right-0 top-9 z-10 overflow-hidden rounded-[var(--radius-panel)] border py-1"
           style={{
             borderColor: "var(--line-strong)",
@@ -250,8 +252,7 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
             <li key={year}>
               <Link
                 href={`${pathname}?batch=${year}`}
-                role="option"
-                aria-selected={year === active}
+                aria-current={year === active ? "true" : undefined}
                 className="flex h-7 items-center px-2.5 text-[13px]"
                 style={{ color: year === active ? "var(--text)" : "var(--text-secondary)" }}
               >

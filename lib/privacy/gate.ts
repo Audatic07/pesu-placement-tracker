@@ -1,19 +1,4 @@
-/**
- * The privacy gate.
- *
- * A "hide my name" checkbox does not make a record anonymous. If a student
- * filters to branch = EEE, company = Netradyne, and one offer comes back, they
- * have learned that person's CGPA and package regardless of whose name is on
- * it — everyone in EEE knows who got the Netradyne offer.
- *
- * So no aggregate over a cohort smaller than K is ever returned. Minimum and
- * maximum are suppressed with the rest: they leak hardest, because a maximum
- * IS one person's exact package.
- *
- * Statistics are produced ONLY through this module. The type system enforces
- * it — `Suppressible<T>` cannot be read without handling the suppressed case,
- * so a caller cannot forget.
- */
+/** Withhold aggregate values below the privacy floor, including extrema. */
 
 export const DEFAULT_MIN_COHORT_SIZE = 5;
 
@@ -68,11 +53,6 @@ export function gate<T>(
 ): Suppressible<T> {
   if (cohortSize < minimum) return suppress(cohortSize, minimum);
   return reveal(compute(), cohortSize);
-}
-
-/** Reads a gated value, or a fallback. For rendering, never for further maths. */
-export function valueOr<T, F>(gated: Suppressible<T>, fallback: F): T | F {
-  return gated.suppressed ? fallback : gated.value;
 }
 
 /**

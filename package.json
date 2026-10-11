@@ -10,9 +10,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "vercel-build": "prisma migrate deploy && next build",
+    "vercel-build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "oxlint --deny-warnings",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -32,9 +32,6 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "7.9.1",
-    "class-variance-authority": "0.7.1",
-    "clsx": "2.1.1",
-    "date-fns": "4.4.0",
     "dotenv": "^17.4.2",
     "jose": "6.2.8",
     "lucide-react": "1.30.0",
@@ -42,9 +39,7 @@
     "pg": "^8.22.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "recharts": "3.10.1",
     "server-only": "^0.0.1",
-    "tailwind-merge": "3.6.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -54,6 +49,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "exceljs": "4.4.0",
+    "oxlint": "1.78.0",
     "prisma": "7.9.1",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.11",

@@ -1,8 +1,9 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../../generated/prisma/client.js";
+import { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { BATCH_YEAR, REPORTS, STUDENTS, SUBMISSIONS } from "./dataset";
-import { createOffer, parseOfferForm, type OfferInputValues } from "@/lib/offers/submit";
+import { createOffer } from "@/lib/offers/submit";
+import { parseOfferForm, type OfferInputValues } from "@/lib/offers/input";
 import { provisionStudent } from "@/lib/auth/provision";
 import { fileReport } from "@/lib/moderation/reports";
 import { getQuotaState } from "@/lib/policy/quota";
@@ -70,10 +71,8 @@ function heading(text: string) {
 /**
  * Mirrors the field names in app/(app)/submit/offer-form.tsx exactly.
  *
- * Repeated inputs append rather than replace, numbers go over the wire as
- * strings, and an unchecked checkbox is absent entirely rather than "false" —
- * all three are the actual HTML form semantics, and all three are places the
- * decoder can go wrong.
+ * Repeated inputs append, numbers travel as strings, and each component has a
+ * hidden true/false field so unchecked boxes preserve row alignment.
  */
 function toFormData(values: Omit<OfferInputValues, "batchYear">, batchYear: number): FormData {
   const form = new FormData();
@@ -327,7 +326,7 @@ async function main() {
 
   // ----------------------------------------------------------------- checks
   heading("Checks");
-  await verify(companiesBefore, accepted, flagged, reportsFiled, offerIds);
+  await verify(companiesBefore, accepted, flagged, reportsFiled);
 
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
@@ -342,7 +341,6 @@ async function verify(
   accepted: number,
   flagged: number,
   reportsFiled: number,
-  offerIds: string[],
 ) {
   const batch = await prisma.batch.findUniqueOrThrow({ where: { year: BATCH_YEAR } });
 
@@ -375,6 +373,28 @@ async function verify(
     "every student filed at least once",
     distinctStudents.length === STUDENTS.length,
     `${distinctStudents.length} of ${STUDENTS.length} students have an offer on file`,
+  );
+
+  const testStudent = await prisma.student.findFirstOrThrow({ where: { graduationYear: BATCH_YEAR } });
+  const missingStudentId = crypto.randomUUID();
+  const packagesBefore = await prisma.compensationPackage.count();
+  let foreignKeyRejected = false;
+  try {
+    await createOffer(
+      { ...testStudent, id: missingStudentId },
+      { ...SUBMISSIONS[0]!.offer, batchYear: BATCH_YEAR },
+    );
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2003") throw error;
+    foreignKeyRejected = true;
+  } finally {
+    await prisma.rateLimitBucket.deleteMany({ where: { key: `submit:${missingStudentId}` } });
+  }
+  const packagesAfter = await prisma.compensationPackage.count();
+  check(
+    "a failed offer rolls back its compensation package",
+    foreignKeyRejected && packagesBefore === packagesAfter,
+    `${packagesBefore} packages before, ${packagesAfter} after the rejected write`,
   );
 
   // --- company identity ---------------------------------------------------
@@ -490,8 +510,8 @@ async function verify(
     `${withCash} of ${withCtc} packages carry an in-hand figure`,
   );
   check(
-    "the headline-versus-cash table found packages to separate",
-    inflation.length > 0 && inflation.some((row) => (row.ratio ?? 1) > 1.2),
+    "headline-versus-cash comparison returns one aggregate per company",
+    inflation.length > 0 && new Set(inflation.map((row) => row.companySlug)).size === inflation.length,
     inflation
       .slice(0, 3)
       .map((row) => `${row.companyName} ${row.ratio?.toFixed(2)}×`)
@@ -676,21 +696,13 @@ async function verify(
     }
   }
 
-  // --- separation from imported history ------------------------------------
-  const importedYear = 2026;
-  const [importedOverview, filed2026, drives2026] = await Promise.all([
-    getBatchOverview({ batchYear: importedYear }),
-    prisma.offer.count({
-      where: { batch: { year: importedYear }, deletedAt: null, verification: { not: "REMOVED" } },
-    }),
-    prisma.drive.count({ where: { batch: { year: importedYear } } }),
+  const year = 2026;
+  const [historicalOverview, submittedCount] = await Promise.all([
+    getBatchOverview({ batchYear: year }),
+    prisma.offer.count({ where: { batch: { year }, deletedAt: null, verification: { not: "REMOVED" } } }),
   ]);
-  check(
-    `imported drives stay out of batch statistics (${drives2026} drives in ${importedYear})`,
-    importedOverview === null || importedOverview.reportCount === filed2026,
-    `${importedYear}: overview reports ${importedOverview?.reportCount ?? "—"}, ` +
-      `students filed ${filed2026}, spreadsheets contributed ${drives2026} drives`,
-  );
+  check("historical and student submissions use the same aggregate", historicalOverview?.reportCount === submittedCount,
+    `${year}: ${historicalOverview?.reportCount} outcomes from ${submittedCount} Offer rows`);
 
   // --- what the pages will show --------------------------------------------
   console.log("\n  Overview as the page will render it:");

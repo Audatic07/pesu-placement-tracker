@@ -1,14 +1,8 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 
-/**
- * Form fields.
- *
- * One control style, one label style, one error style. A dense tool form should
- * look like the tables around it: hairline borders, 30px controls, labels above
- * rather than floating.
- */
+/** Shared labelled form controls. */
 
 const CONTROL =
   "h-[30px] w-full rounded-[var(--radius-control)] px-2 text-[13px] outline-none transition-shadow";
@@ -75,8 +69,7 @@ export function TextInput({
   hint?: ReactNode;
   error?: string;
   required?: boolean;
-  type?: string;
-} & Record<string, unknown>) {
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "name">) {
   const id = useId();
   return (
     <Field label={label} hint={hint} error={error} required={required} htmlFor={id}>

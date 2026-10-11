@@ -81,6 +81,8 @@ async function buildJson() {
     return pseudonyms.get(studentId)!;
   };
 
+  for (const offer of offers) offer.studentId = pseudonym(offer.studentId);
+
   return {
     exportedAt: new Date().toISOString(),
     note:
@@ -89,11 +91,7 @@ async function buildJson() {
     batches,
     companies,
     drives,
-    offers: offers.map((offer) => ({
-      ...offer,
-      studentId: pseudonym(offer.studentId),
-      cgpa: offer.cgpa,
-    })),
+    offers,
   };
 }
 

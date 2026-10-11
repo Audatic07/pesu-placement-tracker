@@ -1,24 +1,10 @@
+import type { RecordSource, AcceptanceStatus, OfferNature, WorkMode, OfferCycle, RoleFamily } from "@/generated/prisma/enums";
 import "server-only";
+import { cache } from "react";
+import { cacheBatchRead } from "./cache";
 import { prisma } from "@/lib/db";
 
-/**
- * The live observation layer.
- *
- * Every statistic this application shows about a batch is built from student
- * submissions, and from nothing else. One submission is one person: their
- * package, their branch, their CGPA, the rounds they actually sat.
- *
- * This file used to union submissions with the rows imported from the placement
- * spreadsheets, and every aggregate averaged across both. That conflated two
- * quantities that are not the same thing — a company ADVERTISED 60 LPA, and a
- * student RECEIVED 60 LPA — and it meant the headline numbers for a live batch
- * were mostly a restatement of a spreadsheet nobody is maintaining any more.
- *
- * The imported layer is now history and is read only where history is the
- * point: `getCompanyHistory` below, which the company profile uses to show what
- * a recruiter did in previous years. It never reaches an aggregate. A batch
- * with no submissions reports honest emptiness rather than a borrowed number.
- */
+/** Each row represents an offer outcome; historical headcounts have no owning student. */
 
 export type Observation = {
   offerId: string;
@@ -26,9 +12,12 @@ export type Observation = {
   companyName: string;
   companySlug: string;
 
-  cycle: string;
+  source: RecordSource;
+  acceptanceStatus: AcceptanceStatus;
+  nature: OfferNature;
+  cycle: OfferCycle;
   tierKey: string | null;
-  roleFamily: string;
+  roleFamily: RoleFamily;
   roleTitle: string;
 
   ctcLpa: number | null;
@@ -44,7 +33,7 @@ export type Observation = {
   /** The CGPA bar the company announced, as this student heard it. */
   announcedCgpaCutoff: number | null;
 
-  workMode: string;
+  workMode: WorkMode;
   bondMonths: number | null;
   internshipDurationMonths: number | null;
 
@@ -55,46 +44,47 @@ export type Observation = {
 
 export type ObservationFilters = {
   batchYear: number;
-  cycle?: string;
+  cycle?: OfferCycle;
   tierKey?: string;
   companyId?: string;
-  roleFamily?: string;
+  roleFamily?: RoleFamily;
   branchCode?: string;
 };
 
 const nonCashOf = (
-  components: Array<{ amount: unknown; isCash: boolean; isLpa: boolean; currency: string }>,
+  components: Array<{ amount: unknown; isCash: boolean; isLpa: boolean; currency: string; vestingYears: unknown }>,
 ) =>
   components
-    .filter((component) => !component.isCash && component.isLpa && component.currency === "INR")
-    .reduce((sum, component) => sum + Number(component.amount), 0);
+    .filter((component) => !component.isCash && component.currency === "INR")
+    .reduce((sum, component) => sum + (component.isLpa ? Number(component.amount)
+      : component.vestingYears !== null && Number(component.vestingYears) > 0
+        ? Number(component.amount) / 100_000 / Number(component.vestingYears) : 0), 0);
 
 const decimal = (value: unknown): number | null =>
   value === null || value === undefined ? null : Number(value);
 
-export async function loadObservations(
-  filters: ObservationFilters,
-): Promise<Observation[]> {
+type StoredObservation = Omit<Observation, "date"> & { date: string | null };
+
+async function readBatchObservations(batchYear: number): Promise<StoredObservation[]> {
   const offers = await prisma.offer.findMany({
     where: {
-      batch: { year: filters.batchYear },
+      batch: { year: batchYear },
       deletedAt: null,
       verification: { not: "REMOVED" },
-      ...(filters.cycle ? { cycle: filters.cycle as never } : {}),
-      ...(filters.tierKey ? { tierKey: filters.tierKey } : {}),
-      ...(filters.companyId ? { companyId: filters.companyId } : {}),
-      ...(filters.roleFamily ? { roleFamily: filters.roleFamily as never } : {}),
-      ...(filters.branchCode ? { branch: { code: filters.branchCode } } : {}),
+
     },
     select: {
       id: true,
       roleTitle: true,
       roleFamily: true,
+      acceptanceStatus: true,
+      nature: true,
       cycle: true,
       tierKey: true,
       offerDate: true,
       createdAt: true,
       verification: true,
+      source: true,
       workMode: true,
       bondMonths: true,
       internshipDurationMonths: true,
@@ -102,14 +92,14 @@ export async function loadObservations(
       eligibleBranches: true,
       company: { select: { id: true, name: true, slug: true } },
       branch: { select: { code: true } },
-      rounds: { select: { heldOn: true }, orderBy: { sequence: "asc" } },
+      rounds: { where: { heldOn: { not: null } }, select: { heldOn: true }, orderBy: { heldOn: "asc" }, take: 1 },
       compensation: {
         select: {
           ctcLpa: true,
           baseLpa: true,
           stipendPerMonthInr: true,
           firstYearCashLpa: true,
-          components: { select: { amount: true, isCash: true, isLpa: true, currency: true } },
+          components: { select: { amount: true, isCash: true, isLpa: true, currency: true, vestingYears: true } },
         },
       },
     },
@@ -117,15 +107,16 @@ export async function loadObservations(
 
   return offers.map((offer) => {
     const pkg = offer.compensation;
-    // A student who gave round dates but no offer date has still told us when
-    // their season happened; the first round is the honest stamp for it.
-    const firstRound = offer.rounds.map((round) => round.heldOn).find(Boolean) ?? null;
+    const firstRound = offer.rounds[0]?.heldOn ?? null;
 
     return {
       offerId: offer.id,
       companyId: offer.company.id,
       companyName: offer.company.name,
       companySlug: offer.company.slug,
+      source: offer.source,
+      acceptanceStatus: offer.acceptanceStatus,
+      nature: offer.nature,
       cycle: offer.cycle,
       tierKey: offer.tierKey,
       roleFamily: offer.roleFamily,
@@ -142,71 +133,25 @@ export async function loadObservations(
       bondMonths: offer.bondMonths,
       internshipDurationMonths: offer.internshipDurationMonths,
       verification: offer.verification,
-      date: offer.offerDate ?? firstRound ?? offer.createdAt,
+      date: (offer.offerDate ?? firstRound ?? (offer.source === "OFFICIAL_IMPORT" ? null : offer.createdAt))?.toISOString() ?? null,
     };
   });
 }
 
-export type HistoricalPoint = {
-  batchYear: number;
-  cycle: string;
-  status: string;
-  studentsPlaced: number;
-  highestCtcLpa: number | null;
-  gpaCutoffRaw: string | null;
-};
+const readStoredBatch = cacheBatchRead("offer-observations-v4", readBatchObservations);
+const loadBatch = cache(async (year: number): Promise<Observation[]> =>
+  (await readStoredBatch(year)).map((row) => Object.assign({}, row, {
+    date: row.date ? new Date(row.date) : null,
+  })),
+);
 
-/**
- * The imported spreadsheet layer, read as history and only as history.
- *
- * These rows carry a headcount rather than a person — the 2026 sheet records
- * that IBM placed 88 students, not who they were — which is exactly why they
- * cannot be mixed into anything above. Kept because a recruiter's behaviour in
- * previous years is real context a first submission cannot supply.
- */
-export async function getCompanyHistory(companyId: string): Promise<HistoricalPoint[]> {
-  const drives = await prisma.drive.findMany({
-    where: { companyId },
-    select: {
-      cycle: true,
-      status: true,
-      gpaCutoffRaw: true,
-      batch: { select: { year: true } },
-      roles: {
-        select: {
-          placedInternship: true,
-          placedFte: true,
-          placedBoth: true,
-          compensation: { select: { id: true, ctcLpa: true } },
-        },
-      },
-    },
-    orderBy: [{ batch: { year: "asc" } }, { visitNumber: "asc" }],
-  });
-
-  return drives.map((drive) => {
-    // Roles sharing one merged cell in the source describe ONE package; count
-    // it once or a company advertising the same figure for three roles looks
-    // like three offers.
-    const byPackage = new Map<string, number>();
-    for (const role of drive.roles) {
-      if (role.compensation?.ctcLpa) {
-        byPackage.set(role.compensation.id, Number(role.compensation.ctcLpa));
-      }
-    }
-    const values = [...byPackage.values()];
-
-    return {
-      batchYear: drive.batch.year,
-      cycle: drive.cycle,
-      status: drive.status,
-      studentsPlaced: drive.roles.reduce(
-        (sum, role) =>
-          sum + (role.placedInternship ?? 0) + (role.placedFte ?? 0) + (role.placedBoth ?? 0),
-        0,
-      ),
-      highestCtcLpa: values.length ? Math.max(...values) : null,
-      gpaCutoffRaw: drive.gpaCutoffRaw,
-    };
-  });
+export async function loadObservations(filters: ObservationFilters): Promise<Observation[]> {
+  const rows = await loadBatch(filters.batchYear);
+  return rows.filter((row) =>
+    (!filters.cycle || row.cycle === filters.cycle) &&
+    (!filters.tierKey || row.tierKey === filters.tierKey) &&
+    (!filters.companyId || row.companyId === filters.companyId) &&
+    (!filters.roleFamily || row.roleFamily === filters.roleFamily) &&
+    (!filters.branchCode || row.branchCode === filters.branchCode),
+  );
 }

@@ -148,6 +148,7 @@ enum CompensationComponentKind {
 }
 
 enum AcceptanceStatus {
+  UNKNOWN // historical sheet does not state an acceptance decision
   ACCEPTED
   DECLINED
   PENDING
@@ -216,6 +217,9 @@ model Batch {
   id   String @id @default(cuid())
   /// Graduating year: 2026, 2027, ...
   year Int    @unique
+
+  /// Incremented atomically when an offer changes; powers cache keys and live updates.
+  dataVersion Int @default(0)
 
   /// When this batch's recruitment season opened. The 2026 sheet records
   /// "The process started on 01 Aug 2025" — needed to align cumulative offer
@@ -688,9 +692,8 @@ model CompensationComponent {
 model Offer {
   id String @id @default(cuid())
 
-  /// Null for OFFICIAL_IMPORT rows: the 2026 sheet records that IBM (ISL)
-  /// placed 88 students, but not who they were. Aggregate history has no
-  /// owning student and must never be counted as one.
+  /// Historical headcounts expand into anonymous offer outcomes without an
+  /// owning student. Offer counts do not establish distinct student counts.
   studentId String?
   student   Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
 

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import "server-only";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -5,15 +6,7 @@ import { readSession } from "@/lib/auth/session";
 import type { UserRole } from "@/generated/prisma/enums";
 import type { StudentModel } from "@/generated/prisma/models";
 
-/**
- * Authorisation guards.
- *
- * The role is re-read from the database on every guarded request rather than
- * trusted from the JWT. The JWT's copy is a hint for middleware, which cannot
- * reach the database on the edge runtime; it is never the decision. This is
- * what makes suspending an account or revoking a role take effect immediately
- * instead of whenever a 12-hour cookie happens to expire.
- */
+/** Read roles and suspension state from the database so account changes take effect immediately. */
 
 const ROLE_RANK: Record<UserRole, number> = {
   STUDENT: 0,
@@ -27,7 +20,7 @@ export function roleAtLeast(role: UserRole, minimum: UserRole): boolean {
 }
 
 /** The signed-in student, or null. Never redirects. */
-export async function getCurrentStudent(): Promise<StudentModel | null> {
+export const getCurrentStudent = cache(async (): Promise<StudentModel | null> => {
   const session = await readSession();
   if (!session) return null;
 
@@ -38,7 +31,7 @@ export async function getCurrentStudent(): Promise<StudentModel | null> {
   if (student.isSuspended) return null;
 
   return student;
-}
+});
 
 /** The signed-in student, or a redirect to login. */
 export async function requireStudent(returnTo?: string): Promise<StudentModel> {
@@ -60,9 +53,4 @@ export async function requireRole(
     notFound();
   }
   return student;
-}
-
-export async function isAdmin(): Promise<boolean> {
-  const student = await getCurrentStudent();
-  return student !== null && roleAtLeast(student.role, "ADMIN");
 }

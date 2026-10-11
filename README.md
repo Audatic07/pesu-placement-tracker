@@ -1,7 +1,8 @@
 # PESU Placement Tracker
 
-Placement statistics for PES University, built from what students report about
-their own offers, authenticated with their own PESU Academy credentials.
+Public placement statistics for PES University, built from historical offer
+outcomes and student submissions. Students sign in with PESU Academy credentials
+to submit or manage their own offers.
 
 It replaces a set of student-maintained Google Sheets that had become the
 de-facto record of who hired whom, for how much, and what the process was like.
@@ -17,12 +18,11 @@ paid over four to five years, and another at 26 LPA of which 8 lakhs is meals
 and transport. The app separates headline CTC, first-year cash, recurring cash
 and an estimated take-home, and shows the gap between them.
 
-**One live source, one archive, never averaged together.** Every batch figure
-counts one row per person who filed. Imported spreadsheet history is aggregate —
-it records that a company placed 88 students, but not who, and at a package the
-company advertised rather than one anyone confirmed receiving. Mixing the two
-would answer "what did students get" with "what did companies publish", so the
-archive is shown beside live figures and labelled, never summed into them.
+**One submission model.** Historical spreadsheet headcounts become individual
+anonymous `Offer` records. They use the same compensation fields and batch
+analytics as new student submissions. Source notes preserve provenance; unknown
+identity, acceptance, dates and compensation stay unknown. Counts represent
+offers, since the sheets cannot establish distinct students across employers.
 
 **Anonymity is structural, not a checkbox.** Offers are anonymous by default,
 exact CGPA is banded in public views, and no statistic is shown for a cohort
@@ -37,12 +37,12 @@ applied "to 2025 batch only", so none of it is compiled into the application.
 ## Stack
 
 Next.js 16 (App Router, React 19), TypeScript, Prisma 7 on PostgreSQL 16,
-Tailwind 4, Recharts, Vitest. Sessions are our own JWT cookie; PESU is contacted
+Tailwind 4, server-rendered SVG charts, Vitest. Sessions are our own JWT cookie; PESU is contacted
 once at login and never again.
 
 ## Running it locally
 
-Requires Node 22+ and Docker.
+Requires Node 22 and Docker.
 
 ```bash
 npm install
@@ -60,8 +60,7 @@ That starts PostgreSQL and the [pesu-auth](https://github.com/pesu-dev/auth)
 service in Docker, applies migrations, and seeds the configuration layer
 (campuses, branches, programmes, tier boundaries, submission policy, tax slabs).
 
-Now populate a demo batch, because every page in this app is behind a login and
-an empty database shows you nothing:
+Optionally populate a disposable demo batch to exercise the submission pipeline:
 
 ```bash
 npm run demo:9998
@@ -104,18 +103,17 @@ Company names in the demo batch are invented. Attaching fabricated packages to
 real employers on a public deployment would be a lie about identifiable
 companies.
 
-## Importing the historical spreadsheet
+## Historical spreadsheet records
 
-`npm run import:excel` reads the 2026 workbook named in `.env`. It contains real
-student placement data and is **not** in this repository, and neither are
-screenshots of it. The importer is a one-off cold start: it seeds the company
-list and gives each recruiter a previous-years section on its profile.
+Historical data is reviewed and prepared as ordinary submissions, with one
+anonymous outcome per stated headcount. Multiple identical offers get separate
+records. Internship-only records retain prospective FTE packages in notes rather
+than treating them as awarded compensation. Missing or ambiguous amounts are
+not estimated. The prepared submissions and database backups remain outside
+Git. See [DEPLOYMENT.md](DEPLOYMENT.md) for validation and cleanup requirements.
 
-**Only the finished season is imported.** 2026 is over and its spreadsheet is
-the archive, so it is shown as history — labelled, and never summed into a live
-batch's figures. 2027 onwards start empty and fill up from student submissions
-alone, because a half-finished sheet would seed a live batch with headcounts a
-company published rather than outcomes a student confirmed.
+The older `import:excel` utility remains for maintenance of legacy data; it is
+not the workflow used for the hand-prepared submissions.
 
 ## Commands
 
@@ -123,6 +121,7 @@ company published rather than outcomes a student confirmed.
 |---|---|
 | `npm run dev` | Development server |
 | `npm run build` / `npm start` | Production build and serve |
+| `npm run lint` | Oxlint (warnings fail the check) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest |
 | `npm run db:up` / `db:down` | Docker Postgres + pesu-auth |
@@ -132,7 +131,7 @@ company published rather than outcomes a student confirmed.
 | `npm run seed` | Configuration rows (idempotent) |
 | `npm run demo:9998` | Synthetic demo batch |
 | `npm run demo:login` | Session cookie for a demo student (development only) |
-| `npm run import:excel` | One-off historical import |
+| `npm run import:excel` | Legacy spreadsheet maintenance utility |
 
 ## Deploying
 

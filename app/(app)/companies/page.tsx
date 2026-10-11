@@ -1,7 +1,10 @@
-import Link from "next/link";
-import { requireStudent } from "@/lib/auth/rbac";
-import { prisma } from "@/lib/db";
-import { queryDirectory, SORT_KEYS, type SortKey } from "@/lib/analytics/directory";
+import { OfferCycle } from "@/generated/prisma/enums";
+import { getBatchYears } from "@/lib/analytics/batches";
+import { choice, choiceList, list, positiveInteger, resolveBatchYear, singleParams, type SearchParams } from "@/lib/query-params";
+import { formatLpa, formatCompactInr, formatCount, formatDate } from "@/lib/format";
+import { CYCLE_LABELS } from "@/lib/offers/labels";
+import { getCurrentStudent } from "@/lib/auth/rbac";
+import { queryDirectory, SORT_KEYS } from "@/lib/analytics/directory";
 import { FilterBar } from "@/components/data/filter-bar";
 import { DataTable, Pagination, type Column } from "@/components/data/table";
 import type { DirectoryRow } from "@/lib/analytics/directory";
@@ -10,10 +13,6 @@ import {
   PageHeader,
   StatusBadge,
   Tag,
-  formatCompactInr,
-  formatCount,
-  formatDate,
-  formatLpa,
   type Tone,
 } from "@/components/ui/primitives";
 
@@ -22,13 +21,7 @@ export const metadata = { title: "Companies · PESU Placement Tracker" };
 
 const SOURCE: Record<string, { label: string; tone: Tone }> = {
   students: { label: "Reported", tone: "accent" },
-  imported: { label: "Imported only", tone: "neutral" },
-};
-
-const CYCLE: Record<string, string> = {
-  SUMMER_INTERNSHIP: "Summer",
-  SIX_MONTH_INTERNSHIP: "Internship",
-  FULL_TIME: "Full time",
+  imported: { label: "Historical", tone: "neutral" },
 };
 
 const TIER_LABEL: Record<string, string> = {
@@ -37,42 +30,29 @@ const TIER_LABEL: Record<string, string> = {
   TIER_3: "T3",
 };
 
-function list(value: string | undefined): string[] | undefined {
-  const parts = value?.split(",").filter(Boolean);
-  return parts && parts.length > 0 ? parts : undefined;
-}
-
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
-  const student = await requireStudent("/companies");
-  const params = await searchParams;
+  const student = await getCurrentStudent();
+  const params = singleParams(await searchParams);
 
-  const batches = await prisma.batch.findMany({ orderBy: { year: "desc" }, select: { year: true } });
-  const requested = Number.parseInt(params["batch"] ?? "", 10);
-  const batchYear =
-    batches.find((batch) => batch.year === requested)?.year ??
-    student.graduationYear ??
-    batches[0]?.year ??
-    new Date().getFullYear();
+  const years = await getBatchYears();
+  const batchYear = resolveBatchYear(params["batch"], years, student?.graduationYear ?? null);
 
-  const sortParam = params["sort"];
-  const sort = (SORT_KEYS as readonly string[]).includes(sortParam ?? "")
-    ? (sortParam as SortKey)
-    : "reports";
+  const sort = choice(params["sort"], SORT_KEYS) ?? "reports";
 
   const result = await queryDirectory({
     batchYear,
     search: params["q"],
     tierKeys: list(params["tier"]),
     branchCodes: list(params["branch"]),
-    cycles: list(params["cycle"]) as never,
-    sources: list(params["source"]) as never,
+    cycles: choiceList(params["cycle"], Object.values(OfferCycle)),
+    sources: choiceList(params["source"], ["students", "imported"] as const),
     sort,
     direction: params["dir"] === "asc" ? "asc" : "desc",
-    page: Number.parseInt(params["page"] ?? "1", 10) || 1,
+    page: positiveInteger(params["page"]),
   });
 
   // Sorting and paging are links built from the current query, so every view
@@ -87,7 +67,6 @@ export default async function CompaniesPage({
       render: (row) => (
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{row.companyName}</span>
-          {row.isRepeatVisit ? <Tag title="Returned during the same season">2nd visit</Tag> : null}
           {row.tierKeys.map((tier) => (
             <Tag key={tier}>{TIER_LABEL[tier] ?? tier}</Tag>
           ))}
@@ -109,7 +88,7 @@ export default async function CompaniesPage({
       header: "Cycle",
       hideBelow: "md",
       render: (row) => (
-        <span style={{ color: "var(--text-secondary)" }}>{CYCLE[row.cycle] ?? row.cycle}</span>
+        <span style={{ color: "var(--text-secondary)" }}>{CYCLE_LABELS[row.cycle] ?? row.cycle}</span>
       ),
     },
     {
@@ -117,26 +96,19 @@ export default async function CompaniesPage({
       header: "Source",
       hideBelow: "sm",
       render: (row) => {
-        const source = SOURCE[row.reports > 0 ? "students" : "imported"]!;
+        const source = row.studentReports > 0 && row.historicalReports > 0
+          ? { label: "Mixed", tone: "accent" as const }
+          : SOURCE[row.studentReports > 0 ? "students" : "imported"]!;
         return <StatusBadge tone={source.tone}>{source.label}</StatusBadge>;
       },
     },
     {
       key: "reports",
-      header: "Reports",
+      header: "Offers",
       sortKey: "reports",
       numeric: true,
       width: "88px",
-      render: (row) =>
-        row.reports > 0 ? (
-          formatCount(row.reports)
-        ) : row.importedPlaced ? (
-          <Muted title={`${row.importedPlaced} in the imported records; nobody has filed here`}>
-            ({formatCount(row.importedPlaced)})
-          </Muted>
-        ) : (
-          <Muted>—</Muted>
-        ),
+      render: (row) => formatCount(row.reports),
     },
     {
       key: "stipend",
@@ -146,7 +118,7 @@ export default async function CompaniesPage({
       width: "92px",
       hideBelow: "lg",
       render: (row) =>
-        row.highestStipendInr ? formatCompactInr(row.highestStipendInr) : <Muted>—</Muted>,
+        row.highestStipendInr !== null ? formatCompactInr(row.highestStipendInr) : <Muted>—</Muted>,
     },
     {
       key: "ctc",
@@ -159,7 +131,7 @@ export default async function CompaniesPage({
     },
     {
       key: "cash",
-      header: "Cash yr 1",
+      header: "Known cash yr 1",
       numeric: true,
       width: "96px",
       hideBelow: "lg",
@@ -168,7 +140,7 @@ export default async function CompaniesPage({
           <Muted>—</Muted>
         ) : (
           <span
-            title="Cash actually reaching the student in year one, excluding unvested equity and non-cash benefits"
+            title="Based on disclosed base and cash components; undisclosed allowances are not inferred"
             style={{
               color:
                 row.highestCtcLpa && row.firstYearCashLpa / row.highestCtcLpa < 0.6
@@ -191,16 +163,7 @@ export default async function CompaniesPage({
         row.cgpaCutoff === null ? (
           <Muted>—</Muted>
         ) : (
-          <span
-            title={
-              row.cutoffSource === "students"
-                ? `Announced cutoff, as students reported it${
-                    row.cgpaCutoffLabel ? ` (${row.cgpaCutoffLabel})` : ""
-                  }`
-                : `From the imported records: ${row.cgpaCutoffLabel}`
-            }
-            style={{ color: row.cutoffSource === "imported" ? "var(--text-tertiary)" : undefined }}
-          >
+          <span title="Median announced eligibility cutoff across recorded submissions">
             {row.cgpaCutoff.toFixed(2)}
           </span>
         ),
@@ -216,14 +179,7 @@ export default async function CompaniesPage({
         row.date === null ? (
           <Muted>—</Muted>
         ) : (
-          <span
-            title={
-              row.dateSource === "students"
-                ? "Earliest round or offer date a student reported"
-                : "Pre-placement talk, from the imported records"
-            }
-            style={{ color: row.dateSource === "imported" ? "var(--text-tertiary)" : undefined }}
-          >
+          <span title="Earliest recorded round or offer date">
             {formatDate(row.date)}
           </span>
         ),
@@ -236,7 +192,7 @@ export default async function CompaniesPage({
         title="Companies"
         description={`${formatCount(result.reportedRows)} of ${formatCount(
           result.total,
-        )} rows for the batch of ${batchYear} have student reports behind them; the rest are imported records, shown greyed. Filters and sorting live in the address bar, so any view here is a link you can send someone.`}
+        )} company/cycle rows for ${batchYear} include student submissions. Historical headcounts use the same offer format and are labelled by source.`}
       />
 
       <FilterBar
@@ -264,7 +220,7 @@ export default async function CompaniesPage({
             label: "Cycle",
             options: result.facets.cycles.map((cycle) => ({
               key: cycle.key,
-              label: CYCLE[cycle.key] ?? cycle.key,
+              label: CYCLE_LABELS[cycle.key] ?? cycle.key,
               count: cycle.count,
             })),
           },

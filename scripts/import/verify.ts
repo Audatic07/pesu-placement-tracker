@@ -1,3 +1,4 @@
+import { mean, median } from "../../lib/analytics/stats";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ImportedWorkbook, SheetFooterStats } from "./sheets/types";
 
@@ -76,20 +77,6 @@ export type VerifyReport = {
   allMatched: boolean;
   text: string;
 };
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
-    : (sorted[middle] ?? null);
-}
-
-function mean(values: number[]): number | null {
-  if (values.length === 0) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
 
 const TIER_TABS: Array<{ sheet: string; tierKey: string }> = [
   { sheet: "Tier 1", tierKey: "TIER_1" },

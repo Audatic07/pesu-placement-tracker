@@ -1,43 +1,7 @@
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import Link from "next/link";
 
-/**
- * The component vocabulary.
- *
- * Everything here is deliberately small and unstyled-by-default: dense rows,
- * hairline separation, one accent, status carried by a dot plus a word rather
- * than by colour alone. Nothing is a card unless it genuinely groups something.
- */
-
-/* ---------------------------------------------------------------- formatting */
-
-export function formatLpa(value: number | null | undefined, withUnit = true): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  const digits = value < 10 ? 2 : value < 100 ? 1 : 0;
-  return `${value.toFixed(digits)}${withUnit ? " LPA" : ""}`;
-}
-
-export function formatInr(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return `₹${Math.round(value).toLocaleString("en-IN")}`;
-}
-
-export function formatCompactInr(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  if (value >= 100_000) return `₹${(value / 100_000).toFixed(value % 100_000 === 0 ? 0 : 1)}L`;
-  if (value >= 1000) return `₹${Math.round(value / 1000)}k`;
-  return `₹${Math.round(value)}`;
-}
-
-export function formatCount(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return value.toLocaleString("en-IN");
-}
-
-export function formatDate(date: Date | null | undefined): string {
-  if (!date) return "—";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
-}
+/** Shared page, panel, status and action components. */
 
 /* -------------------------------------------------------------------- layout */
 
@@ -199,22 +163,23 @@ export function Tag({ children, title }: { children: ReactNode; title?: string }
 
 /* ------------------------------------------------------------------- buttons */
 
-export function Button({
-  children,
-  href,
-  variant = "secondary",
-  size = "md",
-  type,
-  disabled,
-  ...rest
-}: {
+type ButtonStyleProps = {
   children: ReactNode;
-  href?: string;
   variant?: "primary" | "secondary" | "ghost";
   size?: "sm" | "md";
-  type?: "button" | "submit";
-  disabled?: boolean;
-} & Record<string, unknown>) {
+};
+
+type ButtonProps = ButtonStyleProps & (
+  | ({ href: string; type?: never; disabled?: never } & Omit<ComponentProps<typeof Link>, "href" | "children">)
+  | ({ href?: undefined } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">)
+);
+
+export function Button({
+  children,
+  variant = "secondary",
+  size = "md",
+  ...props
+}: ButtonProps) {
   const base =
     "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-control)] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
   const sizing = size === "sm" ? "h-7 px-2.5 text-[12px]" : "h-8 px-3 text-[13px]";
@@ -230,16 +195,16 @@ export function Button({
             boxShadow: "inset 0 0 0 1px var(--line-strong)",
           };
 
-  if (href) {
+  if (props.href !== undefined) {
     return (
-      <Link href={href} className={`${base} ${sizing}`} style={style} {...rest}>
+      <Link className={`${base} ${sizing}`} style={style} {...props}>
         {children}
       </Link>
     );
   }
 
   return (
-    <button type={type ?? "button"} disabled={disabled} className={`${base} ${sizing}`} style={style} {...rest}>
+    <button type="button" className={`${base} ${sizing}`} style={style} {...props}>
       {children}
     </button>
   );

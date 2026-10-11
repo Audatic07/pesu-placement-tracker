@@ -1,0 +1,9 @@
+# Code owners are requested for review automatically on every pull request.
+#
+# This file exists for the handover this project keeps planning for: when the
+# current maintainer graduates, adding the successor here is the one edit that
+# makes reviews land in front of a person who is still around. Keep it current
+# rather than accurate-in-spirit — GitHub requests review from whoever is
+# written here, not whoever is actually maintaining the project.
+
+* @Audatic07

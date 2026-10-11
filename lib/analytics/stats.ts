@@ -1,18 +1,26 @@
-/**
- * Statistical primitives.
- *
- * Separated from the queries and given their own tests because the source
- * spreadsheet demonstrates how easily these rot: its Tier 2 tab records
- *
- *     Wt. Average CTC | "TBD Error with formula"
- *
- * with the broken formula pasted in beside it as a comment, and its Tier 1
- * average silently excludes companies by VALUE rather than by row.
- *
- * Weighted figures matter more than plain ones here. Fifteen companies at 6 LPA
- * hiring one student each and one company at 6 LPA hiring eighty describe very
- * different batches, and only the headcount-weighted figures tell them apart.
- */
+export type PackageStats = {
+  count: number;
+  highest: number | null;
+  average: number | null;
+  median: number | null;
+  p25: number | null;
+  p75: number | null;
+  p90: number | null;
+  standardDeviation: number | null;
+};
+
+export function packageStats(values: number[]): PackageStats {
+  return {
+    count: values.length,
+    highest: values.length ? Math.max(...values) : null,
+    average: mean(values),
+    median: median(values),
+    p25: percentile(values, 0.25),
+    p75: percentile(values, 0.75),
+    p90: percentile(values, 0.9),
+    standardDeviation: standardDeviation(values),
+  };
+}
 
 export function mean(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -51,14 +59,6 @@ export function standardDeviation(values: number[]): number | null {
     values.reduce((sum, value) => sum + (value - average) ** 2, 0) / (values.length - 1);
   return Math.sqrt(variance);
 }
-
-/*
- * Headcount weighting used to live here: a weighted mean and median that let a
- * spreadsheet row saying "this company hired eighty people" count eighty times
- * against a student submission counting once. Both were removed along with the
- * merge they served. Every row a statistic sees is now one person, so a weight
- * would always be 1 and a weighted median is just a median.
- */
 
 /** Least-squares fit, for the "does CGPA actually matter" scatter. */
 export type LinearFit = {
@@ -110,9 +110,10 @@ export function linearRegression(points: Array<{ x: number; y: number }>): Linea
 export type Bucket = { lower: number; upper: number; count: number };
 
 export function histogram(values: number[], bucketWidth: number): Bucket[] {
-  if (values.length === 0 || bucketWidth <= 0) return [];
+  const usable = values.filter((value) => Number.isFinite(value) && value >= 0);
+  if (usable.length === 0 || !Number.isFinite(bucketWidth) || bucketWidth <= 0) return [];
 
-  const max = Math.max(...values);
+  const max = Math.max(...usable);
   const bucketCount = Math.max(1, Math.ceil((max + 0.000_001) / bucketWidth));
   const buckets: Bucket[] = Array.from({ length: bucketCount }, (_unused, index) => ({
     lower: index * bucketWidth,
@@ -120,8 +121,7 @@ export function histogram(values: number[], bucketWidth: number): Bucket[] {
     count: 0,
   }));
 
-  for (const value of values) {
-    if (!Number.isFinite(value) || value < 0) continue;
+  for (const value of usable) {
     const index = Math.min(buckets.length - 1, Math.floor(value / bucketWidth));
     const bucket = buckets[index];
     if (bucket) bucket.count += 1;

@@ -1,27 +1,12 @@
+import type { OfferCycle, RoleFamily } from "@/generated/prisma/enums";
 import "server-only";
+import { cacheBatchRead } from "./cache";
+import { getTierConfigs } from "./config";
 import { prisma } from "@/lib/db";
 import { median } from "./stats";
+import { gate } from "@/lib/privacy/gate";
 
-/**
- * The directory layer: search, filter, sort and pagination over companies.
- *
- * A row is one company in one cycle of one batch. It is built from student
- * submissions; where the imported spreadsheets also cover that company and
- * cycle, the imported figures are attached to the same row and labelled rather
- * than merged into it. Student-reported values always lead — a cutoff a
- * classmate heard announced this season beats one a spreadsheet recorded two
- * seasons ago, and the imported figure fills the cell only when nobody has
- * reported one.
- *
- * Everything is filtered and counted in memory. A batch is a few hundred rows,
- * the row shape is a fold over two sources that SQL cannot express in one pass,
- * and doing it here keeps facet counts and result counts derived from exactly
- * the same list rather than from two queries that can disagree.
- *
- * Every option is expressed in the URL by the pages that use it, so a view is
- * shareable, the back button works, and a filtered result can be linked into a
- * WhatsApp group — which is how this data actually travels.
- */
+/** One submission aggregate per company/cycle; filters and facets share the same rows. */
 
 export const SORT_KEYS = ["name", "ctc", "stipend", "reports", "date", "cutoff"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
@@ -36,8 +21,8 @@ export type DirectoryQuery = {
   search?: string;
   tierKeys?: string[];
   branchCodes?: string[];
-  cycles?: Array<"SUMMER_INTERNSHIP" | "SIX_MONTH_INTERNSHIP" | "FULL_TIME">;
-  roleFamilies?: string[];
+  cycles?: OfferCycle[];
+  roleFamilies?: RoleFamily[];
   sources?: SourceFilter[];
   minCtcLpa?: number;
   maxCtcLpa?: number;
@@ -48,20 +33,18 @@ export type DirectoryQuery = {
 };
 
 export type DirectoryRow = {
-  /** Stable across both layers: one company, one cycle. */
+  /** One company and recruiting cycle. */
   key: string;
   companyId: string;
   companyName: string;
   companySlug: string;
   parentName: string | null;
-  cycle: string;
+  cycle: OfferCycle;
 
-  /** Submissions filed for this company and cycle. The live number. */
+  /** All submissions for this company and cycle. */
   reports: number;
-  /** Headcount the spreadsheets published. Null when no import covers this. */
-  importedPlaced: number | null;
-  /** Drive outcome, meaningful only where an import exists. */
-  importedStatus: string | null;
+  studentReports: number;
+  historicalReports: number;
 
   roleTitles: string[];
   tierKeys: string[];
@@ -73,13 +56,7 @@ export type DirectoryRow = {
   firstYearCashLpa: number | null;
 
   cgpaCutoff: number | null;
-  /** The raw string where it came from an import ("8(+ Resume)"). */
-  cgpaCutoffLabel: string | null;
-  cutoffSource: "students" | "imported" | null;
-
   date: Date | null;
-  dateSource: "students" | "imported" | null;
-  isRepeatVisit: boolean;
 };
 
 export type DirectoryResult = {
@@ -88,25 +65,31 @@ export type DirectoryResult = {
   page: number;
   pageSize: number;
   pageCount: number;
-  /** How many rows have live submissions behind them, across the whole batch. */
+  /** How many rows have live submissions behind them, in the current result set. */
   reportedRows: number;
   /** Counts for each filter value across the CURRENT result set minus that
    *  filter, so a facet never shows a choice that would return nothing. */
   facets: {
     tiers: Array<{ key: string; label: string; count: number }>;
     branches: Array<{ key: string; count: number }>;
-    cycles: Array<{ key: string; count: number }>;
+    cycles: Array<{ key: OfferCycle; count: number }>;
     sources: Array<{ key: string; count: number }>;
   };
 };
 
 export const DEFAULT_PAGE_SIZE = 25;
 
-type Accumulator = DirectoryRow & { roleFamilies: Set<string>; aliases: string[] };
+type Accumulator = DirectoryRow & {
+  roleFamilies: Set<RoleFamily>;
+  aliases: string[];
+  ctcReports: number;
+  stipendReports: number;
+  cashReports: number;
+};
 
 function blank(
   company: { id: string; name: string; slug: string; parent: { name: string } | null },
-  cycle: string,
+  cycle: OfferCycle,
   aliases: string[],
 ): Accumulator {
   return {
@@ -117,8 +100,11 @@ function blank(
     parentName: company.parent?.name ?? null,
     cycle,
     reports: 0,
-    importedPlaced: null,
-    importedStatus: null,
+    studentReports: 0,
+    historicalReports: 0,
+    ctcReports: 0,
+    stipendReports: 0,
+    cashReports: 0,
     roleTitles: [],
     tierKeys: [],
     eligibleBranches: [],
@@ -126,12 +112,8 @@ function blank(
     highestStipendInr: null,
     firstYearCashLpa: null,
     cgpaCutoff: null,
-    cgpaCutoffLabel: null,
-    cutoffSource: null,
     date: null,
-    dateSource: null,
-    isRepeatVisit: false,
-    roleFamilies: new Set<string>(),
+    roleFamilies: new Set<RoleFamily>(),
     aliases,
   };
 }
@@ -140,24 +122,23 @@ const higher = (current: number | null, candidate: number | null) =>
   candidate !== null && (current === null || candidate > current) ? candidate : current;
 
 async function buildRows(batchYear: number): Promise<Accumulator[]> {
-  const [offers, drives] = await Promise.all([
-    prisma.offer.findMany({
+  const offers = await prisma.offer.findMany({
       where: {
         batch: { year: batchYear },
         deletedAt: null,
         verification: { not: "REMOVED" },
       },
       select: {
+        source: true,
         roleTitle: true,
         roleFamily: true,
         cycle: true,
         tierKey: true,
         offerDate: true,
-        createdAt: true,
         announcedCgpaCutoff: true,
         eligibleBranches: true,
         branch: { select: { code: true } },
-        rounds: { select: { heldOn: true }, orderBy: { sequence: "asc" } },
+        rounds: { where: { heldOn: { not: null } }, select: { heldOn: true }, orderBy: { heldOn: "asc" }, take: 1 },
         company: {
           select: {
             id: true,
@@ -171,52 +152,12 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
           select: { ctcLpa: true, stipendPerMonthInr: true, firstYearCashLpa: true },
         },
       },
-    }),
-    prisma.drive.findMany({
-      where: { batch: { year: batchYear } },
-      select: {
-        cycle: true,
-        status: true,
-        visitNumber: true,
-        pptDate: true,
-        eligibleBranches: true,
-        gpaCutoffRaw: true,
-        gpaCutoffNumeric: true,
-        company: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            parent: { select: { name: true } },
-            aliases: { select: { alias: true } },
-          },
-        },
-        roles: {
-          select: {
-            title: true,
-            roleFamily: true,
-            tierKey: true,
-            placedInternship: true,
-            placedFte: true,
-            placedBoth: true,
-            compensation: {
-              select: {
-                id: true,
-                ctcLpa: true,
-                stipendPerMonthInr: true,
-                firstYearCashLpa: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-  ]);
+    });
 
   const rows = new Map<string, Accumulator>();
   const at = (
     company: { id: string; name: string; slug: string; parent: { name: string } | null; aliases: Array<{ alias: string }> },
-    cycle: string,
+    cycle: OfferCycle,
   ) => {
     const key = `${company.id}::${cycle}`;
     let row = rows.get(key);
@@ -227,12 +168,13 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
     return row;
   };
 
-  // --- the live layer -------------------------------------------------------
   const cutoffsByKey = new Map<string, number[]>();
 
   for (const offer of offers) {
     const row = at(offer.company, offer.cycle);
     row.reports += 1;
+    if (offer.source === "OFFICIAL_IMPORT") row.historicalReports += 1;
+    else row.studentReports += 1;
     row.roleFamilies.add(offer.roleFamily);
     if (offer.roleTitle && !row.roleTitles.includes(offer.roleTitle)) {
       row.roleTitles.push(offer.roleTitle);
@@ -251,14 +193,17 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
     }
 
     const pkg = offer.compensation;
-    row.highestCtcLpa = higher(row.highestCtcLpa, pkg?.ctcLpa ? Number(pkg.ctcLpa) : null);
+    if (pkg?.ctcLpa != null) row.ctcReports += 1;
+    if (pkg?.stipendPerMonthInr != null) row.stipendReports += 1;
+    if (pkg?.firstYearCashLpa != null) row.cashReports += 1;
+    row.highestCtcLpa = higher(row.highestCtcLpa, pkg?.ctcLpa != null ? Number(pkg.ctcLpa) : null);
     row.highestStipendInr = higher(
       row.highestStipendInr,
-      pkg?.stipendPerMonthInr ? Number(pkg.stipendPerMonthInr) : null,
+      pkg?.stipendPerMonthInr != null ? Number(pkg.stipendPerMonthInr) : null,
     );
     row.firstYearCashLpa = higher(
       row.firstYearCashLpa,
-      pkg?.firstYearCashLpa ? Number(pkg.firstYearCashLpa) : null,
+      pkg?.firstYearCashLpa != null ? Number(pkg.firstYearCashLpa) : null,
     );
 
     if (offer.announcedCgpaCutoff !== null) {
@@ -267,10 +212,20 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
       else cutoffsByKey.set(row.key, [Number(offer.announcedCgpaCutoff)]);
     }
 
-    const stamp = offer.offerDate ?? offer.rounds.map((round) => round.heldOn).find(Boolean) ?? null;
+    const stamp = offer.offerDate ?? offer.rounds[0]?.heldOn ?? null;
     if (stamp && (row.date === null || stamp < row.date)) {
       row.date = stamp;
-      row.dateSource = "students";
+    }
+  }
+
+  for (const row of rows.values()) {
+    for (const [amount, count] of [
+      ["highestCtcLpa", "ctcReports"],
+      ["highestStipendInr", "stipendReports"],
+      ["firstYearCashLpa", "cashReports"],
+    ] as const) {
+      const result = gate(row[count], () => row[amount]);
+      row[amount] = result.suppressed ? null : result.value;
     }
   }
 
@@ -282,63 +237,21 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
     const value = median(values);
     if (value === null) continue;
     row.cgpaCutoff = value;
-    row.cgpaCutoffLabel = value.toFixed(2);
-    row.cutoffSource = "students";
-  }
-
-  // --- the imported layer, filling only what nobody reported ----------------
-  for (const drive of drives) {
-    const row = at(drive.company, drive.cycle);
-    row.importedStatus = drive.status;
-    row.isRepeatVisit = row.isRepeatVisit || drive.visitNumber > 1;
-
-    const placed = drive.roles.reduce(
-      (sum, role) =>
-        sum + (role.placedInternship ?? 0) + (role.placedFte ?? 0) + (role.placedBoth ?? 0),
-      0,
-    );
-    row.importedPlaced = (row.importedPlaced ?? 0) + placed;
-
-    for (const role of drive.roles) {
-      row.roleFamilies.add(role.roleFamily);
-      if (role.title && !row.roleTitles.includes(role.title)) row.roleTitles.push(role.title);
-      if (role.tierKey && !row.tierKeys.includes(role.tierKey)) row.tierKeys.push(role.tierKey);
-    }
-
-    if (row.eligibleBranches.length === 0) row.eligibleBranches = [...drive.eligibleBranches];
-
-    // Packages: shared compensation rows count once, and a student-reported
-    // figure is never overwritten by an advertised one.
-    const seen = new Set<string>();
-    for (const role of drive.roles) {
-      const pkg = role.compensation;
-      if (!pkg || seen.has(pkg.id)) continue;
-      seen.add(pkg.id);
-      if (row.reports === 0) {
-        row.highestCtcLpa = higher(row.highestCtcLpa, pkg.ctcLpa ? Number(pkg.ctcLpa) : null);
-        row.highestStipendInr = higher(
-          row.highestStipendInr,
-          pkg.stipendPerMonthInr ? Number(pkg.stipendPerMonthInr) : null,
-        );
-        row.firstYearCashLpa = higher(
-          row.firstYearCashLpa,
-          pkg.firstYearCashLpa ? Number(pkg.firstYearCashLpa) : null,
-        );
-      }
-    }
-
-    if (row.cutoffSource === null && drive.gpaCutoffNumeric !== null) {
-      row.cgpaCutoff = Number(drive.gpaCutoffNumeric);
-      row.cgpaCutoffLabel = drive.gpaCutoffRaw ?? Number(drive.gpaCutoffNumeric).toFixed(2);
-      row.cutoffSource = "imported";
-    }
-    if (row.dateSource === null && drive.pptDate) {
-      row.date = drive.pptDate;
-      row.dateSource = "imported";
-    }
   }
 
   return [...rows.values()];
+}
+
+const readStoredRows = cacheBatchRead("directory-v4", async (batchYear: number) =>
+  (await buildRows(batchYear)).map(({ roleFamilies, date, ...row }) =>
+    Object.assign({}, row, { roleFamilies: [...roleFamilies], date: date?.toISOString() ?? null }),
+  ),
+);
+
+async function loadRows(batchYear: number): Promise<Accumulator[]> {
+  return (await readStoredRows(batchYear)).map((row) => Object.assign({}, row, {
+    roleFamilies: new Set(row.roleFamilies), date: row.date ? new Date(row.date) : null,
+  }));
 }
 
 type FilterKey = "search" | "tierKeys" | "branchCodes" | "cycles" | "roleFamilies" | "sources" | "ctc";
@@ -361,7 +274,7 @@ function matches(row: Accumulator, query: DirectoryQuery, omit?: FilterKey): boo
   }
 
   if (omit !== "cycles" && query.cycles?.length) {
-    if (!query.cycles.includes(row.cycle as never)) return false;
+    if (!query.cycles.includes(row.cycle)) return false;
   }
 
   if (omit !== "roleFamilies" && query.roleFamilies?.length) {
@@ -369,8 +282,8 @@ function matches(row: Accumulator, query: DirectoryQuery, omit?: FilterKey): boo
   }
 
   if (omit !== "sources" && query.sources?.length) {
-    const isReported = row.reports > 0;
-    const wanted = query.sources.includes(isReported ? "students" : "imported");
+    const wanted = (query.sources.includes("students") && row.studentReports > 0) ||
+      (query.sources.includes("imported") && (row.historicalReports > 0));
     if (!wanted) return false;
   }
 
@@ -384,18 +297,21 @@ function matches(row: Accumulator, query: DirectoryQuery, omit?: FilterKey): boo
 }
 
 export async function queryDirectory(query: DirectoryQuery): Promise<DirectoryResult> {
-  const page = Math.max(1, query.page ?? 1);
-  const pageSize = Math.min(100, Math.max(5, query.pageSize ?? DEFAULT_PAGE_SIZE));
+  const requestedPage = query.page !== undefined && Number.isSafeInteger(query.page) && query.page > 0
+    ? query.page
+    : 1;
+  const pageSize = query.pageSize !== undefined && Number.isSafeInteger(query.pageSize)
+    ? Math.min(100, Math.max(5, query.pageSize))
+    : DEFAULT_PAGE_SIZE;
 
-  const [all, batch] = await Promise.all([
-    buildRows(query.batchYear),
-    prisma.batch.findUnique({
-      where: { year: query.batchYear },
-      include: { tierConfigs: { orderBy: { rank: "asc" } } },
-    }),
+  const [all, tiers] = await Promise.all([
+    loadRows(query.batchYear),
+    getTierConfigs(query.batchYear),
   ]);
 
   const rows = all.filter((row) => matches(row, query));
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const page = Math.min(requestedPage, pageCount);
 
   const direction = query.direction ?? (query.sort === "name" ? "asc" : "desc");
   const factor = direction === "asc" ? 1 : -1;
@@ -409,8 +325,6 @@ export async function queryDirectory(query: DirectoryQuery): Promise<DirectoryRe
       case "stipend":
         return (nullsLast(a.highestStipendInr) - nullsLast(b.highestStipendInr)) * factor;
       case "reports":
-        // Rows nobody has reported sort below rows that have one, whatever the
-        // spreadsheet claims: the point of the column is live coverage.
         return (a.reports - b.reports) * factor || a.companyName.localeCompare(b.companyName);
       case "cutoff":
         return (nullsLast(a.cgpaCutoff) - nullsLast(b.cgpaCutoff)) * factor;
@@ -438,17 +352,20 @@ export async function queryDirectory(query: DirectoryQuery): Promise<DirectoryRe
   const tierCounts = countBy("tierKeys", (row) => row.tierKeys);
   const branchCounts = countBy("branchCodes", (row) => row.eligibleBranches);
   const cycleCounts = countBy("cycles", (row) => [row.cycle]);
-  const sourceCounts = countBy("sources", (row) => [row.reports > 0 ? "students" : "imported"]);
+  const sourceCounts = countBy("sources", (row) => [
+    ...(row.studentReports > 0 ? ["students"] : []),
+    ...(row.historicalReports > 0 ? ["imported"] : []),
+  ]);
 
   return {
     rows: rows.slice((page - 1) * pageSize, page * pageSize),
     total: rows.length,
     page,
     pageSize,
-    pageCount: Math.max(1, Math.ceil(rows.length / pageSize)),
-    reportedRows: all.filter((row) => row.reports > 0).length,
+    pageCount,
+    reportedRows: rows.filter((row) => row.studentReports > 0).length,
     facets: {
-      tiers: (batch?.tierConfigs ?? []).map((tier) => ({
+      tiers: tiers.map((tier) => ({
         key: tier.key,
         label: tier.label,
         count: tierCounts.get(tier.key) ?? 0,
@@ -460,20 +377,4 @@ export async function queryDirectory(query: DirectoryQuery): Promise<DirectoryRe
       sources: [...sourceCounts.entries()].map(([key, count]) => ({ key, count })),
     },
   };
-}
-
-/** Type-ahead for the submission form and the search box. */
-export async function searchCompanies(term: string, limit = 8) {
-  if (!term.trim()) return [];
-  return prisma.company.findMany({
-    where: {
-      OR: [
-        { name: { contains: term, mode: "insensitive" } },
-        { aliases: { some: { alias: { contains: term, mode: "insensitive" } } } },
-      ],
-    },
-    select: { id: true, name: true, slug: true, _count: { select: { drives: true } } },
-    orderBy: { name: "asc" },
-    take: limit,
-  });
 }

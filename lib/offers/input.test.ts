@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseOfferForm } from "@/lib/offers/submit";
+import { parseOfferForm } from "@/lib/offers/input";
 
 /**
  * The form decoder.
@@ -44,6 +44,23 @@ describe("parseOfferForm", () => {
     // A package of 0 would be derived a tier and counted in every median.
     expect(parsed.data.ctcLpa).toBeUndefined();
     expect(parsed.data.cgpa).toBeUndefined();
+  });
+
+  it.each(["12oops", "not a number", "Infinity"])("rejects malformed numeric input: %s", (ctcLpa) => {
+    const parsed = parseOfferForm(form({ ...MINIMUM, ctcLpa }));
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.path[0]).toBe("ctcLpa");
+  });
+
+  it("keeps an explicit zero", () => {
+    expect(parseOfferForm(form({ ...MINIMUM, bondMonths: "0" })).data?.bondMonths).toBe(0);
+  });
+
+  it("rejects an impossible offer or interview date", () => {
+    expect(parseOfferForm(form({ ...MINIMUM, offerDate: "2026-02-30" })).success).toBe(false);
+    expect(parseOfferForm(form({
+      ...MINIMUM, roundKind: "HR", roundHeldOn: "not a date",
+    })).success).toBe(false);
   });
 
   it("defaults to anonymous when the checkbox is absent", () => {

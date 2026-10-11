@@ -1,0 +1,53 @@
+name: CodeQL
+
+# Static security analysis for the application code. This repository is public,
+# so code scanning is free; on a private repository the same workflow needs
+# GitHub Advanced Security and will fail without it.
+#
+# The weekly run is the point of this workflow rather than an afterthought. Most
+# findings arrive from a new CodeQL query release, not a new commit, and a repo
+# that only scans on push stops learning about its own code the moment the
+# commits stop.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays, a little after Dependabot's weekly run.
+    - cron: "24 5 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      # Required to upload the results to the Security tab.
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # JavaScript and TypeScript are analysed from source. There is no build
+      # step and no autobuild here: CodeQL does not need the compiled output,
+      # and asking it to run one would only duplicate the CI build job.
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
