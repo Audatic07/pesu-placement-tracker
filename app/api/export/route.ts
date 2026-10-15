@@ -98,6 +98,9 @@ async function buildJson() {
     return pseudonyms.get(studentId)!;
   };
 
+  // Both export formats retain exact CGPA under the current placement policy.
+  // JSON also keeps the full record for future rewrites; identity is replaced
+  // with per-export pseudonyms rather than included alongside those figures.
   for (const offer of offers) offer.studentId = pseudonym(offer.studentId);
 
   return {

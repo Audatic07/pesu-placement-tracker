@@ -1,4 +1,9 @@
-/** Placement figures are visible for every nonempty cohort; names stay private. */
+/**
+ * Placement figures, including exact CGPA, are visible for every nonempty
+ * cohort. The default gate represents missing data, not a privacy threshold.
+ * Recipient names and SRNs stay out of placement views and their payloads;
+ * `Suppressible<T>` keeps callers from treating an empty cohort as a value.
+ */
 
 export const DEFAULT_MIN_COHORT_SIZE = 1;
 

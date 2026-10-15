@@ -49,6 +49,8 @@ into two rows because someone typed it in lower case.
 offers marked NAMED. Known placement figures are shown even for one outcome;
 empty inputs still need an explicit no-data result. Keep recipient identity out
 of placement queries and client payloads. Account and admin identity is separate.
+`lib/privacy/gate.ts` handles empty cohorts, not a five-record privacy threshold.
+Handle both cases of `Suppressible<T>` rather than unwrapping it with a cast.
 
 **No password is stored, logged, or held longer than the request.** It passes
 through the server once, to pesu-auth, and is never written anywhere. Check

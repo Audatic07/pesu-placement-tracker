@@ -100,6 +100,7 @@ Phone and desktop are equally important and each is designed as a first-class
 layout rather than one adapting to the other.
 
 Submission drafts stay on the device and validation uses the same schema on
-the client and server. A CGPA outlook shows announced eligibility and privacy
-gated peer outcomes. A historical headcount entry can yield to the matching
+the client and server. A CGPA outlook shows announced eligibility and recorded
+peer outcomes for every nonempty cohort, without recipient names or SRNs.
+A historical headcount entry can yield to the matching
 student submission and return if that submission is removed.
