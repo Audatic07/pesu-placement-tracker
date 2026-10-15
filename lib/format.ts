@@ -23,3 +23,10 @@ export function formatDate(date: Date | null | undefined): string {
   if (!date) return "—";
   return dateFormatter.format(date);
 }
+
+/** Absolute grants and bonuses must not be labelled as annual lakh amounts. */
+export function formatComponentAmount(component: { amount: number; currency: string; isLpa: boolean }): string {
+  if (!Number.isFinite(component.amount)) return "—";
+  if (component.currency === "INR") return component.isLpa ? formatLpa(component.amount) : formatCompactInr(component.amount);
+  return `${component.currency} ${component.amount.toLocaleString("en-IN")}${component.isLpa ? " lakh / year" : ""}`;
+}

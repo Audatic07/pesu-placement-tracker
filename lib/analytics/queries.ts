@@ -11,6 +11,7 @@ import {
   type ObservationFilters,
 } from "./observations";
 import { histogram, median, packageStats, type Bucket, type PackageStats } from "./stats";
+import { historicalSourceQuote } from "@/lib/comp/source-quote";
 
 /** Offer aggregates include labelled historical records. Personal statistics respect the privacy floor. */
 
@@ -403,6 +404,12 @@ export type CompanyTrendPoint = {
   offers: number;
   highestCtc: number | null;
   medianCtc: number | null;
+  ctcRecords: number;
+  ctcWithheld: boolean;
+  highestQuotedCtc: number | null;
+  quotedCtcRecords: number;
+  quoteWithheld: boolean;
+  highestStipend: number | null;
   gpaCutoff: string | null;
 };
 
@@ -414,10 +421,11 @@ export async function getCompanyTrend(companyId: string): Promise<CompanyTrendPo
       ...(process.env.NODE_ENV === "production" ? { batch: { year: { lt: 9000 } } } : {}),
     },
     select: {
+      id: true, source: true, studentId: true, processNotes: true,
       cycle: true,
       announcedCgpaCutoff: true,
       batch: { select: { year: true } },
-      compensation: { select: { ctcLpa: true } },
+      compensation: { select: { ctcLpa: true, stipendPerMonthInr: true, rawNote: true } },
     },
   });
   const grouped = new Map<string, typeof offers>();
@@ -432,11 +440,23 @@ export async function getCompanyTrend(companyId: string): Promise<CompanyTrendPo
     const values = group.flatMap((offer) => offer.compensation?.ctcLpa == null ? [] : [Number(offer.compensation.ctcLpa)]);
     const cutoffs = group.flatMap((offer) => offer.announcedCgpaCutoff === null ? [] : [Number(offer.announcedCgpaCutoff)]);
     const stats = gate(values.length, () => packageStats(values));
+    const quotes = group.flatMap((offer) => {
+      if (offer.compensation?.ctcLpa != null) return [];
+      const quote = historicalSourceQuote(offer);
+      return quote?.ctcLpa == null ? [] : [quote.ctcLpa];
+    });
+    const quoted = gate(quotes.length, () => Math.max(...quotes));
+    const stipends = group.flatMap((offer) => offer.compensation?.stipendPerMonthInr == null ? [] : [Number(offer.compensation.stipendPerMonthInr)]);
+    const stipend = gate(stipends.length, () => Math.max(...stipends));
     const cutoff = median(cutoffs);
     return {
       key, batchYear: first.batch.year, cycle: first.cycle, offers: group.length,
       highestCtc: stats.suppressed ? null : stats.value.highest,
       medianCtc: stats.suppressed ? null : stats.value.median,
+      ctcRecords: values.length, ctcWithheld: stats.suppressed && values.length > 0,
+      highestQuotedCtc: quoted.suppressed ? null : quoted.value,
+      quotedCtcRecords: quotes.length, quoteWithheld: quoted.suppressed && quotes.length > 0,
+      highestStipend: stipend.suppressed ? null : stipend.value,
       gpaCutoff: cutoff === null ? null : cutoff.toFixed(2),
     };
   }).sort((a, b) => a.batchYear - b.batchYear || a.cycle.localeCompare(b.cycle));

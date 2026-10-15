@@ -96,7 +96,32 @@ describe("live aggregates", () => {
     expect(await getCompanyTrend("company-id")).toEqual([{
       key: "2026::FULL_TIME", batchYear: 2026, cycle: "FULL_TIME", offers: 5,
       highestCtc: 20, medianCtc: 20, gpaCutoff: "7.00",
+      ctcRecords: 5, ctcWithheld: false, highestQuotedCtc: null,
+      quotedCtcRecords: 0, quoteWithheld: false, highestStipend: null,
     }]);
+  });
+
+  it("recovers source quotes while leaving awarded CTC statistics unknown", async () => {
+    const offer = {
+      id: `handmade-${"a".repeat(32)}`, source: "OFFICIAL_IMPORT", studentId: null,
+      processNotes: "Source: source.xlsx · Internship · row 6.",
+      cycle: "SIX_MONTH_INTERNSHIP", announcedCgpaCutoff: null, batch: { year: 2027 },
+      compensation: { ctcLpa: null, stipendPerMonthInr: 105000, rawNote: "Source package: monthly internship stipend 105000 INR; stated base 21 LPA; headline CTC 87 LPA.\nPerformance-based FTE." },
+    };
+    database.offers.mockResolvedValue(Array.from({ length: 16 }, () => offer));
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({
+      highestCtc: null, medianCtc: null, ctcRecords: 0, ctcWithheld: false,
+      highestQuotedCtc: 87, quotedCtcRecords: 16, quoteWithheld: false, highestStipend: 105000,
+    });
+    database.offers.mockResolvedValue([offer]);
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({
+      highestCtc: null, highestQuotedCtc: null, quoteWithheld: true, highestStipend: null,
+    });
+  });
+
+  it("distinguishes privacy-hidden awarded CTC from missing compensation", async () => {
+    database.offers.mockResolvedValue([{ cycle: "FULL_TIME", announcedCgpaCutoff: null, batch: { year: 2027 }, compensation: { ctcLpa: 40 } }]);
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({ highestCtc: null, ctcRecords: 1, ctcWithheld: true });
   });
 
   it("withholds inflation analysis when only one offer supplies cash pay", async () => {

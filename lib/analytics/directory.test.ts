@@ -38,6 +38,19 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("company directory", () => {
+  it("shows source quotes separately and keeps awarded CTC filtering unchanged", async () => {
+    const historical = {
+      ...offer(1, null), id: `handmade-${"a".repeat(32)}`, source: "OFFICIAL_IMPORT", studentId: null,
+      processNotes: "Source: source.xlsx · Internship · row 6.",
+      compensation: { ctcLpa: null, firstYearCashLpa: null, stipendPerMonthInr: 105000,
+        rawNote: "Source package: monthly internship stipend 105000 INR; stated base 21 LPA; headline CTC 87 LPA." },
+    };
+    database.offers.mockResolvedValue(Array.from({ length: 16 }, () => historical));
+    expect((await queryDirectory({ batchYear: 2027 })).rows[0]).toMatchObject({ highestCtcLpa: null, highestQuotedCtcLpa: 87, ctcWithheld: false });
+    expect((await queryDirectory({ batchYear: 2027, minCtcLpa: 80 })).rows).toEqual([]);
+    database.offers.mockResolvedValue([historical]);
+    expect((await queryDirectory({ batchYear: 2027 })).rows[0]).toMatchObject({ highestQuotedCtcLpa: null, quoteWithheld: true });
+  });
   it("withholds live amounts until enough students state that amount", async () => {
     database.offers.mockResolvedValue([
       ...Array.from({ length: 4 }, () => offer(1)), offer(1, null), offer(1, null),
