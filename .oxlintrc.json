@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "react",
+    "nextjs",
+    "jsx-a11y",
+    "import",
+    "promise",
+    "oxc",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "generated/**",
+    ".next/**",
+    "prisma/migrations/**"
+  ],
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "eslint/no-await-in-loop": "off",
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": [
+          "server-only",
+          "dotenv/config",
+          "**/*.css"
+        ]
+      }
+    ],
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": [
+          "_count",
+          "_all"
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "components/data/charts.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/prefer-tag-over-role": "off"
+      }
+    }
+  ]
+}

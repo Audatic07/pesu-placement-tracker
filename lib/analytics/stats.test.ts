@@ -45,7 +45,6 @@ describe("basic statistics", () => {
   });
 });
 
-
 describe("linearRegression", () => {
   it("recovers a known line", () => {
     const points = [1, 2, 3, 4, 5].map((x) => ({ x, y: 3 * x + 2 }));
@@ -75,22 +74,35 @@ describe("histogram", () => {
     expect(buckets[0]?.count).toBe(3);
     expect(buckets[1]?.count).toBe(2);
   });
+
+  it("ignores non-finite and negative values before allocating buckets", () => {
+    expect(histogram([NaN, Infinity, -1, 5], 5)).toEqual([
+      { lower: 0, upper: 5, count: 0 },
+      { lower: 5, upper: 10, count: 1 },
+    ]);
+    expect(histogram([NaN, -1], 5)).toEqual([]);
+    expect(histogram([5], Infinity)).toEqual([]);
+  });
 });
 
 describe("privacy gate", () => {
+  it("shows a single record with the current name-only privacy policy", () => {
+    expect(gate(1, () => 42)).toEqual({ suppressed: false, value: 42, cohortSize: 1 });
+    expect(gate(0, () => { throw new Error("Empty input must not be computed"); }).suppressed).toBe(true);
+  });
   it("suppresses a cohort below the minimum", () => {
     const result = gate(3, () => 42, 5);
     expect(result.suppressed).toBe(true);
-    if (result.suppressed) {
-      expect(result.cohortSize).toBe(3);
-      expect(result.reason).toMatch(/at least 5/i);
-    }
+    if (!result.suppressed) throw new Error("Expected suppression");
+    expect(result.cohortSize).toBe(3);
+    expect(result.reason).toMatch(/at least 5/i);
   });
 
   it("reveals a cohort at or above the minimum", () => {
     const result = gate(5, () => 42, 5);
     expect(result.suppressed).toBe(false);
-    if (!result.suppressed) expect(result.value).toBe(42);
+    if (result.suppressed) throw new Error(result.reason);
+    expect(result.value).toBe(42);
   });
 
   it("does not run the computation when suppressing", () => {
@@ -138,8 +150,8 @@ describe("cgpaBand", () => {
 describe("canShowName", () => {
   const base = { nameVisibility: "NAMED", verification: "ADMIN_VERIFIED", deletedAt: null };
 
-  it("shows a name only on an explicit opt-in", () => {
-    expect(canShowName(base)).toBe(true);
+  it("hides recipient names even on legacy named offers", () => {
+    expect(canShowName(base)).toBe(false);
     expect(canShowName({ ...base, nameVisibility: "ANONYMOUS" })).toBe(false);
   });
 
@@ -212,10 +224,9 @@ describe("compensation model", () => {
     );
 
     expect(derived.steadyStateCashLpa).toBe(24);
-    expect(derived.firstYearCashLpa).toBe(54);
+    expect(derived.firstYearCashLpa).toBeNull();
     expect(derived.oneTimeCashLpa).toBe(30);
-    // The headline is 1.1x the first-year cash and 2.5x the recurring cash.
-    expect(derived.ctcInflationRatio).toBeCloseTo(60 / 54, 6);
+    expect(derived.ctcInflationRatio).toBeNull();
   });
 
   it("excludes SAP's free lunch from cash", () => {
@@ -256,18 +267,38 @@ describe("compensation model", () => {
     expect(derived.assumptions.join(" ")).toMatch(/US dollars/);
   });
 
-  it("says so when it is guessing from the headline alone", () => {
+  it("leaves cash and take-home unknown when only headline CTC is disclosed", () => {
     const derived = deriveCompensation(
       { baseLpa: null, ctcLpa: 12, components: [] },
       regime,
     );
-    expect(derived.steadyStateCashLpa).toBe(12);
-    expect(derived.assumptions.join(" ")).toMatch(/upper bound/i);
+    expect(derived.steadyStateCashLpa).toBeNull();
+    expect(derived.firstYearCashLpa).toBeNull();
+    expect(derived.estimatedInHandMonthlyInr).toBeNull();
+    expect(derived.ctcInflationRatio).toBeNull();
+    expect(derived.assumptions.join(" ")).toMatch(/base pay is unknown/i);
   });
 
   it("returns no take-home figure without a tax regime", () => {
     const derived = deriveCompensation({ baseLpa: 20, ctcLpa: 20, components: [] }, null);
     expect(derived.estimatedInHandMonthlyInr).toBeNull();
+  });
+
+  it("annualises absolute INR equity grants without changing stated annual rates", () => {
+    const derived = deriveCompensation({ baseLpa: 10, ctcLpa: 20, components: [
+      { kind: "RSU", amount: 400000, currency: "INR", isLpa: false, isOneTime: false, isCash: false, vestingYears: 4 },
+      { kind: "PERKS", amount: 2, currency: "INR", isLpa: true, isOneTime: false, isCash: false, vestingYears: null },
+    ] }, null);
+    expect(derived.nonCashLpa).toBe(3);
+    expect(derived.firstYearCashLpa).toBe(10);
+  });
+
+  it("does not assign a multi-year cash grant entirely to year one", () => {
+    const derived = deriveCompensation({ baseLpa: 10, ctcLpa: 26, components: [
+      { kind: "JOINING_BONUS", amount: 350000, currency: "INR", isLpa: false, isOneTime: true, isCash: true, vestingYears: 2 },
+    ] }, null);
+    expect(derived.firstYearCashLpa).toBeNull();
+    expect(derived.steadyStateCashLpa).toBe(10);
   });
 
   it("produces a plausible take-home for a 20 LPA package", () => {

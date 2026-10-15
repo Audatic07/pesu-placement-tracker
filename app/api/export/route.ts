@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/rbac";
 import { recordAudit } from "@/lib/audit";
+import { csvCell } from "@/lib/admin/csv";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,8 @@ export async function GET(request: NextRequest) {
     return new NextResponse(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
@@ -46,6 +49,8 @@ export async function GET(request: NextRequest) {
   return new NextResponse(JSON.stringify(payload, null, 2), {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
       "Content-Disposition": `attachment; filename="placement-tracker-${new Date()
         .toISOString()
         .slice(0, 10)}.json"`,
@@ -59,10 +64,18 @@ async function buildJson() {
       include: { tierConfigs: true, submissionRule: true, strengths: true },
       orderBy: { year: "asc" },
     }),
-    prisma.company.findMany({ include: { aliases: true }, orderBy: { name: "asc" } }),
+    prisma.company.findMany({
+      include: { aliases: true },
+      orderBy: { name: "asc" },
+    }),
     prisma.drive.findMany({
       include: {
-        roles: { include: { compensation: { include: { components: true } }, rounds: true } },
+        roles: {
+          include: {
+            compensation: { include: { components: true } },
+            rounds: true,
+          },
+        },
         funnel: true,
       },
     }),
@@ -70,16 +83,25 @@ async function buildJson() {
     // export is of the placement record, not of who is in it. `studentId` is
     // replaced by a stable pseudonym so longitudinal analysis still works.
     prisma.offer.findMany({
-      include: { compensation: { include: { components: true } }, rounds: true },
+      include: {
+        compensation: { include: { components: true } },
+        rounds: true,
+      },
     }),
   ]);
 
   const pseudonyms = new Map<string, string>();
   const pseudonym = (studentId: string | null) => {
     if (!studentId) return null;
-    if (!pseudonyms.has(studentId)) pseudonyms.set(studentId, `S${pseudonyms.size + 1}`);
+    if (!pseudonyms.has(studentId))
+      pseudonyms.set(studentId, `S${pseudonyms.size + 1}`);
     return pseudonyms.get(studentId)!;
   };
+
+  // Both export formats retain exact CGPA under the current placement policy.
+  // JSON also keeps the full record for future rewrites; identity is replaced
+  // with per-export pseudonyms rather than included alongside those figures.
+  for (const offer of offers) offer.studentId = pseudonym(offer.studentId);
 
   return {
     exportedAt: new Date().toISOString(),
@@ -89,33 +111,22 @@ async function buildJson() {
     batches,
     companies,
     drives,
-    offers: offers.map((offer) => ({
-      ...offer,
-      studentId: pseudonym(offer.studentId),
-      cgpa: offer.cgpa,
-    })),
+    offers,
   };
-}
-
-function csvCell(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  const text =
-    value instanceof Date
-      ? value.toISOString()
-      : typeof value === "object"
-        ? JSON.stringify(value)
-        : String(value);
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function toCsv(rows: Array<Record<string, unknown>>): string {
   if (rows.length === 0) return "";
   const headers = Object.keys(rows[0]!);
-  const lines = rows.map((row) => headers.map((header) => csvCell(row[header])).join(","));
+  const lines = rows.map((row) =>
+    headers.map((header) => csvCell(row[header])).join(","),
+  );
   return `﻿${[headers.join(","), ...lines].join("\r\n")}\r\n`;
 }
 
-async function buildCsv(table: string): Promise<{ filename: string; csv: string }> {
+async function buildCsv(
+  table: string,
+): Promise<{ filename: string; csv: string }> {
   const stamp = new Date().toISOString().slice(0, 10);
 
   if (table === "offers") {
@@ -142,8 +153,7 @@ async function buildCsv(table: string): Promise<{ filename: string; csv: string 
           nature: offer.nature,
           tier: offer.tierKey ?? "",
           branch: offer.branch?.code ?? "",
-          // Banded, never exact: an export is the most likely way a CGPA would
-          // escape the privacy rules the app enforces on screen.
+          cgpa: offer.cgpa ?? "",
           cgpa_band: offer.cgpaBand ?? "",
           ctc_lpa: offer.compensation?.ctcLpa ?? "",
           base_lpa: offer.compensation?.baseLpa ?? "",

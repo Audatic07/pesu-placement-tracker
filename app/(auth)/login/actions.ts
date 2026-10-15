@@ -68,12 +68,19 @@ export async function login(
     "unknown";
 
   const [accountLimit, ipLimit] = await Promise.all([
-    consumeRateLimit(`login:acct:${identifier}`, ATTEMPTS_PER_ACCOUNT, WINDOW_SECONDS),
+    consumeRateLimit(
+      `login:acct:${identifier}`,
+      ATTEMPTS_PER_ACCOUNT,
+      WINDOW_SECONDS,
+    ),
     consumeRateLimit(`login:ip:${ip}`, ATTEMPTS_PER_IP, WINDOW_SECONDS),
   ]);
 
   if (!accountLimit.allowed || !ipLimit.allowed) {
-    const wait = Math.max(accountLimit.retryAfterSeconds, ipLimit.retryAfterSeconds);
+    const wait = Math.max(
+      accountLimit.retryAfterSeconds,
+      ipLimit.retryAfterSeconds,
+    );
     return {
       error: `Too many attempts. Try again in ${Math.ceil(wait / 60)} minute(s).`,
     };
@@ -89,16 +96,15 @@ export async function login(
   }
 
   const student = await provisionStudent(result.profile, result.classInfo);
+  const withRole = await applyBootstrapAdmin(student);
 
-  if (student.isSuspended) {
+  if (withRole.isSuspended) {
     return {
       error:
-        student.suspendedReason ??
+        withRole.suspendedReason ??
         "This account has been suspended. Contact the placement tracker admins.",
     };
   }
-
-  const withRole = await applyBootstrapAdmin(student);
 
   await createSession({
     sub: withRole.id,
@@ -116,7 +122,8 @@ export async function login(
 
   // Only same-origin paths, so a crafted ?next= cannot bounce someone to
   // another site carrying the impression that we sent them there.
-  const destination = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  const destination =
+    next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
   redirect(destination);
 }
 

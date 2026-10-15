@@ -23,10 +23,10 @@ a placement season; that is slower than a company, and it is the honest number.
 
 Ranked by how badly it goes wrong, not by how interesting the bug is:
 
-1. **Any path that reveals an individual student's package, CGPA or identity**
-   from what is supposed to be an aggregate. This includes small-cohort
-   inference: if a filter combination narrows to one person, the answer must be
-   suppressed rather than shown. The gate is `lib/privacy/gate.ts`.
+1. **Any placement view that reveals a recipient's name or SRN.** Placement
+   figures, including compensation and CGPA, are visible even for one outcome.
+   Older naming opt-ins must not expose names. Account identity and owner-only
+   backups remain restricted to their authorized viewers.
 2. **Anything touching the PESU password.** It passes through the server once
    and is never stored, logged or cached. A path that writes it anywhere — an
    error log, a trace, a retry buffer — is critical.
@@ -55,6 +55,6 @@ Ranked by how badly it goes wrong, not by how interesting the bug is:
 ## If you are running your own deployment
 
 Rotate `SESSION_SECRET` on any suspicion of a leak; it invalidates every active
-session, which is the intended emergency response. Keep `PRIVACY_MIN_COHORT_SIZE`
-at 5 or higher — lowering it weakens student anonymity directly, and it is the
-one setting where a smaller number is never a better product.
+session, which is the intended emergency response. Recipient names and SRNs must
+stay out of placement views. The former `PRIVACY_MIN_COHORT_SIZE` setting is
+ignored; known placement figures are shown for every nonempty cohort.

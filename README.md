@@ -1,7 +1,8 @@
 # PESU Placement Tracker
 
-Placement statistics for PES University, built from what students report about
-their own offers, authenticated with their own PESU Academy credentials.
+Public placement statistics for PES University, built from historical offer
+outcomes and student submissions. Students sign in with PESU Academy credentials
+to submit or manage their own offers.
 
 It replaces a set of student-maintained Google Sheets that had become the
 de-facto record of who hired whom, for how much, and what the process was like.
@@ -17,25 +18,16 @@ paid over four to five years, and another at 26 LPA of which 8 lakhs is meals
 and transport. The app separates headline CTC, first-year cash, recurring cash
 and an estimated take-home, and shows the gap between them.
 
-**One kind of record, collected two ways.** Every batch figure counts one row
-per placement. For a live season that row is a student's own submission. For a
-finished season it comes from the batch's placement sheet — a spreadsheet the
-students themselves maintained, so its rows are the same kind of evidence as a
-submission. The import expands "placed 88" into 88 offer rows with no owning
-student: the sheet says how many, not who. They count in every figure a
-submission counts in, and each one stands for a student who has not filed.
-When that student files their own offer, the stand-in yields to it — the
-count stays what the sheet said, and the anonymous row is replaced by the
-person, with the CGPA, rounds and notes only they could give. What stand-ins
-never do is vote more than once where the app reasons about people: outlier
-detection and corroboration treat an expanded headcount as one observation,
-not eighty-eight.
+**One submission model.** Historical spreadsheet headcounts become individual
+anonymous `Offer` records. They use the same compensation fields and batch
+analytics as new student submissions. Source notes preserve provenance; unknown
+identity, acceptance, dates and compensation stay unknown. Counts represent
+offers, since the sheets cannot establish distinct students across employers.
 
-**Anonymity is structural, not a checkbox.** Offers are anonymous by default,
-exact CGPA is banded in public views, and no statistic is shown for a cohort
-below five records — including maximums, which are one person's package wearing
-a hat. The gate is enforced by the type system: a suppressible statistic cannot
-be read without handling the suppressed case.
+**Recipient names stay private.** Placement views never show recipient names or
+SRNs, including on older offers that opted into naming. Recorded compensation
+and CGPA are visible even for a single outcome. Empty or undisclosed values stay
+unknown. Source package quotes remain separate from awarded compensation.
 
 **Everything is batch-scoped configuration.** Tier boundaries, submission
 quotas, tax slabs. The 2026 sheet's own guidelines already note a tier that
@@ -44,12 +36,12 @@ applied "to 2025 batch only", so none of it is compiled into the application.
 ## Stack
 
 Next.js 16 (App Router, React 19), TypeScript, Prisma 7 on PostgreSQL 16,
-Tailwind 4, Recharts, Vitest. Sessions are our own JWT cookie; PESU is contacted
+Tailwind 4, server-rendered SVG charts, Vitest. Sessions are our own JWT cookie; PESU is contacted
 once at login and never again.
 
 ## Running it locally
 
-Requires Node 22+ and Docker.
+Requires Node 22 and Docker.
 
 ```bash
 npm install
@@ -67,8 +59,7 @@ That starts PostgreSQL and the [pesu-auth](https://github.com/pesu-dev/auth)
 service in Docker, applies migrations, and seeds the configuration layer
 (campuses, branches, programmes, tier boundaries, submission policy, tax slabs).
 
-Now populate a demo batch, because every page in this app is behind a login and
-an empty database shows you nothing:
+Optionally populate a disposable demo batch to exercise the submission pipeline:
 
 ```bash
 npm run demo:9998
@@ -111,20 +102,18 @@ Company names in the demo batch are invented. Attaching fabricated packages to
 real employers on a public deployment would be a lie about identifiable
 companies.
 
-## Importing the historical spreadsheet
+## Historical spreadsheet records
 
-`npm run import:excel` reads the workbooks named in `.env`. They contain real
-student placement data and are **not** in this repository, and neither are
-screenshots of them. The importer lands each finished season in the shape a
-submission produces: every published headcount becomes that many offer rows,
-each with `studentId = null` and `source = OFFICIAL_IMPORT`, so an archived
-year renders through the same analytics as a live one. Re-running it replaces
-the previous run's rows and never touches a student's own submission.
+Historical data is reviewed and prepared as ordinary submissions, with one
+anonymous outcome per stated headcount. Multiple identical offers get separate
+records. Internship-only records retain prospective FTE packages in notes rather
+than treating them as awarded compensation. Missing or ambiguous amounts are
+not estimated. The prepared submissions and database backups remain outside
+Git. See [DEPLOYMENT.md](DEPLOYMENT.md) for validation and cleanup requirements.
 
-**Only finished seasons are imported.** A season still being played starts
-empty and fills up from student submissions alone, because a half-finished
-sheet would seed a live batch with headcounts a company published rather than
-outcomes a student confirmed.
+Admins can maintain outcomes at `/admin/offers` or upload reviewed UTF-8 CSV
+from Excel or Google Sheets at `/admin/imports`. Imports are atomic,
+fingerprinted and reversible. `import:excel` remains an offline legacy utility.
 
 ## Commands
 
@@ -132,26 +121,32 @@ outcomes a student confirmed.
 |---|---|
 | `npm run dev` | Development server |
 | `npm run build` / `npm start` | Production build and serve |
+| `npm run lint` | Oxlint (warnings fail the check) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest |
 | `npm run db:up` / `db:down` | Docker Postgres + pesu-auth |
 | `npm run db:migrate` | Apply migrations in development |
 | `npm run db:deploy` | Apply migrations in production |
-| `npm run db:studio` | Prisma Studio |
+| `npm run db:studio` | Prisma Studio (local operator access) |
+| `npm run admin:verify` | Admin/import/access checks on a disposable localhost DB |
+| `npm run backup:create` / `backup:restore` | Private backup and empty-database restore |
 | `npm run seed` | Configuration rows (idempotent) |
 | `npm run demo:9998` | Synthetic demo batch |
 | `npm run demo:login` | Session cookie for a demo student (development only) |
-| `npm run import:excel` | One-off historical import |
+| `npm run import:excel` | Legacy spreadsheet maintenance utility |
 
 ## Deploying
 
-See [DEPLOYMENT.md](DEPLOYMENT.md).
+See [DEPLOYMENT.md](DEPLOYMENT.md). Vercel + Neon is the default; Docker and
+production Compose support other Node/PostgreSQL hosts. Production secrets stay
+out of previews and forks. Owners recover through verified PESU login for the
+host-configured `SUPER_ADMIN_SRN`, then manage other admins in the console.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: this handles real
-student data, so privacy failures are the highest-severity defect class here,
-and every statistic must pass through the privacy gate rather than around it.
+student data, so recipient names, credentials and sessions must remain private.
+Known placement figures are shown for every nonempty cohort.
 
 Security issues: see [SECURITY.md](SECURITY.md).
 
@@ -165,3 +160,8 @@ MIT. See [LICENSE](LICENSE).
 [DESIGN.md](DESIGN.md) records the design system as built. Read both before
 proposing a change to how anything looks or reads — several of the constraints
 in them are decisions, not defaults.
+
+The submission form checks fields as they are typed and retains an unsent draft
+on the current device, scoped to the student and batch. Analysis can also show
+cohort outcomes around a chosen CGPA. Anonymous historical outcomes yield to a
+matching student submission so the same placement is counted once.

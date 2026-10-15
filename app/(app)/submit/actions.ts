@@ -3,24 +3,13 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStudent } from "@/lib/auth/rbac";
-import { createOffer, parseOfferForm } from "@/lib/offers/submit";
-import { searchCompanies } from "@/lib/analytics/directory";
+import { createOffer } from "@/lib/offers/submit";
+import { parseOfferForm } from "@/lib/offers/schema";
 
 export type SubmitState = {
   error?: string;
   field?: string;
-  flagged?: boolean;
 };
-
-/** Type-ahead for the company field, so free text converges on one company. */
-export async function suggestCompanies(term: string) {
-  await requireStudent();
-  const results = await searchCompanies(term, 6);
-  return results.map((company) => ({
-    name: company.name,
-    drives: company._count.drives,
-  }));
-}
 
 export async function submitOffer(
   _previous: SubmitState,

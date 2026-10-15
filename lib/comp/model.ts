@@ -1,24 +1,6 @@
 import type { CompensationComponentKind } from "@/generated/prisma/enums";
 
-/**
- * Turning a package into the numbers a student actually wants.
- *
- * Three figures matter and only one of them is on the offer letter:
- *
- *   CTC              the headline. Includes equity that may never vest, bonuses
- *                    paid once, and the cash value of free lunch.
- *   first-year cash  what reaches the bank account in year one, including
- *                    one-time joining money.
- *   steady-state     what recurs once the one-time money stops.
- *
- * The gap between them is the point. Meesho's 60 LPA carries the note "All the
- * extra money in CTC is majorly retention bonus over a period of 4-5 years";
- * SAP's 26 includes 8 lakhs of meals and transport. A student comparing
- * headline numbers is comparing noise.
- *
- * Pure functions, no database and no clock — the tax table and the exchange
- * rate are passed in, so this is testable and so neither can silently rot.
- */
+/** Pure compensation and tax calculations. Rates and tax configuration are supplied by the caller. */
 
 export type ComponentInput = {
   kind: CompensationComponentKind;
@@ -79,13 +61,11 @@ export type DerivedCompensation = {
 export const DEFAULT_USD_TO_INR = 88;
 
 function toLpa(component: ComponentInput, usdToInr: number): number {
-  if (component.currency === "USD") {
-    // A dollar grant is an absolute amount, not an annual rate.
-    const inr = component.amount * usdToInr;
-    const years = component.vestingYears && component.vestingYears > 0 ? component.vestingYears : 1;
-    return inr / 100_000 / years;
-  }
-  return component.isLpa ? component.amount : component.amount / 100_000;
+  if (component.currency === "INR" && component.isLpa) return component.amount;
+  if (!component.isCash && (component.vestingYears === null || component.vestingYears <= 0)) return 0;
+  const inr = component.amount * (component.currency === "USD" ? usdToInr : 1);
+  const years = component.vestingYears && component.vestingYears > 0 ? component.vestingYears : 1;
+  return inr / 100_000 / years;
 }
 
 /**
@@ -129,6 +109,7 @@ export function deriveCompensation(
   let oneTimeCash = 0;
   let nonCash = 0;
   let sawUsd = false;
+  let uncertainCashTiming = false;
 
   for (const component of input.components) {
     const lpa = toLpa(component, usdToInr);
@@ -138,13 +119,19 @@ export function deriveCompensation(
       nonCash += lpa;
     } else if (component.isOneTime) {
       oneTimeCash += lpa;
+      if (component.kind === "RETENTION_BONUS" || (component.vestingYears !== null && component.vestingYears > 1)) {
+        uncertainCashTiming = true;
+      }
     } else {
       recurringCash += lpa;
     }
   }
 
-  // Prefer an explicitly itemised base; fall back to the base column; fall back
-  // to the headline CTC, which is the least trustworthy of the three.
+  if (input.components.some((component) => !component.isCash && !component.isLpa && component.vestingYears === null)) {
+    assumptions.push("Non-cash grants without a vesting term are preserved but excluded from annual valuations.");
+  }
+
+  // Cash requires a stated base; a headline CTC can include undisclosed benefits.
   const itemisedBase = input.components
     .filter((component) => component.kind === "FIXED_BASE")
     .reduce((sum, component) => sum + toLpa(component, usdToInr), 0);
@@ -156,18 +143,20 @@ export function deriveCompensation(
     recurringBase = input.baseLpa + recurringCash;
     assumptions.push("Recurring pay taken from the stated base plus itemised recurring components.");
   } else if (input.ctcLpa !== null) {
-    // With no base and no itemisation, the headline is all we have. Say so:
-    // the resulting in-hand figure is an upper bound, not an estimate.
-    recurringBase = input.ctcLpa - oneTimeCash - nonCash;
     assumptions.push(
-      "No base pay was published, so recurring pay is the headline CTC less any components we could identify. Treat the take-home figure as an upper bound.",
+      "Base pay is unknown. Headline CTC alone cannot establish cash pay or monthly take-home.",
     );
   }
 
   if (recurringBase !== null && recurringBase < 0) recurringBase = 0;
 
-  const firstYearCash = recurringBase === null ? null : recurringBase + oneTimeCash;
+  const firstYearCash = recurringBase === null || uncertainCashTiming ? null : recurringBase + oneTimeCash;
   const steadyStateCash = recurringBase;
+
+  if (uncertainCashTiming) assumptions.push("A staged or retention bonus has no confirmed year-one payout schedule; first-year cash is unknown.");
+  if (input.components.some((component) => component.kind === "VARIABLE_PAY" && component.amount > 0)) {
+    assumptions.push("Variable pay is a target; actual payout may differ.");
+  }
 
   if (sawUsd) {
     assumptions.push(

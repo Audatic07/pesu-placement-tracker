@@ -69,11 +69,3 @@ export async function consumeRateLimit(
     return { allowed: true, remaining: 0, retryAfterSeconds: 0 };
   }
 }
-
-/** Removes closed windows. Wire to a scheduled job once one exists. */
-export async function pruneRateLimitBuckets(): Promise<number> {
-  const { count } = await prisma.rateLimitBucket.deleteMany({
-    where: { windowEndsAt: { lt: new Date() } },
-  });
-  return count;
-}

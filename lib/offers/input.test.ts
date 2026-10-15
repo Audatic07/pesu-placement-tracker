@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseOfferForm } from "@/lib/offers/submit";
+import { parseOfferForm } from "@/lib/offers/schema";
 
 /**
  * The form decoder.
@@ -46,6 +46,23 @@ describe("parseOfferForm", () => {
     expect(parsed.data.cgpa).toBeUndefined();
   });
 
+  it.each(["12oops", "not a number", "Infinity"])("rejects malformed numeric input: %s", (ctcLpa) => {
+    const parsed = parseOfferForm(form({ ...MINIMUM, ctcLpa }));
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.path[0]).toBe("ctcLpa");
+  });
+
+  it("keeps an explicit zero", () => {
+    expect(parseOfferForm(form({ ...MINIMUM, bondMonths: "0" })).data?.bondMonths).toBe(0);
+  });
+
+  it("rejects an impossible offer or interview date", () => {
+    expect(parseOfferForm(form({ ...MINIMUM, offerDate: "2026-02-30" })).success).toBe(false);
+    expect(parseOfferForm(form({
+      ...MINIMUM, roundKind: "HR", roundHeldOn: "not a date",
+    })).success).toBe(false);
+  });
+
   it("defaults to anonymous when the checkbox is absent", () => {
     expect(parseOfferForm(form(MINIMUM)).data?.showName).toBe(false);
     expect(parseOfferForm(form({ ...MINIMUM, showName: "on" })).data?.showName).toBe(true);
@@ -59,7 +76,7 @@ describe("parseOfferForm", () => {
         ...MINIMUM,
         componentKind: ["FIXED_BASE", "RSU", "JOINING_BONUS"],
         componentAmount: ["20", "15", "4"],
-        componentOneTime: ["false", "false", "true"],
+        componentOneTime: ["2"],
       }),
     );
 
@@ -79,7 +96,7 @@ describe("parseOfferForm", () => {
         ...MINIMUM,
         componentKind: ["FIXED_BASE", "VARIABLE_PAY"],
         componentAmount: ["20", ""],
-        componentOneTime: ["false", "false"],
+        componentOneTime: [],
       }),
     );
     expect(parsed.data?.components).toHaveLength(1);

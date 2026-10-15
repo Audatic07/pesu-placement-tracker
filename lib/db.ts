@@ -9,8 +9,8 @@ import { PrismaClient } from "@/generated/prisma/client";
  * modules on every edit; without this, dev mode leaks a connection pool per
  * save and exhausts Postgres within a few minutes.
  */
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+const globalForPrisma = globalThis as typeof globalThis & {
+  prisma?: PrismaClient;
 };
 
 function createClient(): PrismaClient {
@@ -23,7 +23,7 @@ function createClient(): PrismaClient {
 
   const adapter = new PrismaPg({
     connectionString,
-    max: 10,
+    max: 5,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
   });
@@ -39,6 +39,4 @@ function createClient(): PrismaClient {
 
 export const prisma: PrismaClient = globalForPrisma.prisma ?? createClient();
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+globalForPrisma.prisma = prisma;

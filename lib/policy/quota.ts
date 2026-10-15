@@ -2,17 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import type { OfferCycle } from "@/generated/prisma/enums";
 
-/**
- * Submission quotas.
- *
- * Enforced on the server, always. The form hides options a student has used up,
- * but hiding is a courtesy — the check that matters runs inside the action,
- * because a hidden field is not a rule.
- *
- * The limits themselves are per-batch configuration, not constants: the source
- * sheets record a different official policy for 2026 than the one this product
- * uses, and both have to be expressible without a code change.
- */
+/** Per-batch quotas are enforced on the server; form controls are only a convenience. */
 
 export type QuotaSlot = {
   cycle: OfferCycle;

@@ -1,138 +1,206 @@
-# Deploying
+# Deployment and handover
 
-This is a Next.js app with a PostgreSQL database and one external dependency
-(the PESU authentication service). It has no queue, no cache, no object storage
-and no cron — deliberately, because it has to be operable by whoever inherits it.
+The application is portable Next.js + PostgreSQL. PESU-auth remains the identity
+provider; admins and owners have no second application password. Provider
+accounts belong to the deployment operator. Daily maintenance happens in
+`/admin` using verified PESU accounts.
 
-## Environment
+## Default hosting and uptime
 
-Every variable is documented in [.env.example](.env.example). The four that
-matter in production:
+Use Vercel Hobby for the app and the existing Neon PostgreSQL database in
+Singapore. `vercel.json` places application functions in `sin1`, near the DB.
+Keep the existing PESU-auth service independently of the app release. Replacing
+an app deployment does not require deleting its database, auth service or domain.
+Vercel and Neon are convenient defaults, not application dependencies; the
+Docker image supports an ordinary Node/PostgreSQL host.
 
-| Variable | Notes |
-|---|---|
-| `DATABASE_URL` | Managed Postgres, **pooled** endpoint. Include `?sslmode=require` if your provider needs it. |
-| `DIRECT_DATABASE_URL` | The same database, unpooled. Migrations use it. A transaction-mode pooler drops the advisory locks Prisma takes during a migration, so `migrate deploy` against the pooled URL hangs or fails mid-build. |
-| `SESSION_SECRET` | 32+ characters. Generate with `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. Rotating it signs every active session out — the intended response to a suspected leak. |
-| `PESU_AUTH_BASE_URL` | Your own pesu-auth instance. See below. |
-| `SUPER_ADMIN_SRN` | The SRN promoted to `SUPER_ADMIN` on first login. Set it before anyone logs in, or nobody has admin rights. |
+Free hosting offers a publicly addressable site within its allowances, **not an
+uptime guarantee**. [Render free services](https://render.com/docs/free) sleep
+after 15 idle minutes. The existing GitHub auth warm-up workflow helps, but
+schedules can be delayed or disabled after inactivity. Neon can suspend idle
+compute, adding wake-up latency. [Vercel Hobby](https://vercel.com/docs/plans/hobby)
+can pause features when allowances are exhausted. Uninterrupted authentication
+requires an always-on auth host: a paid instance or an available university or
+community server. Do not promise 24/7 login availability on these free tiers.
 
-Leave `PRIVACY_MIN_COHORT_SIZE` at 5 or raise it. Lowering it weakens student
-anonymity directly.
+The current database region was verified from deployment logs on 11 October
+2026. Other maintainers should change `vercel.json` to match their own database.
 
-Do not set `IMPORT_XLSX_*` in production. The importer is a one-off run against
-local copies of the source workbooks; the server never reads them.
+## Production configuration
 
-## The auth dependency
+Keep credentials in the provider and a password manager. Never commit private
+backups, source workbooks, credentials or real account identifiers to a fork.
 
-Login proxies to [pesu-dev/auth](https://github.com/pesu-dev/auth), which
-verifies credentials against PESU Academy. **Run your own instance.** The public
-one at `pesuauth.onrender.com` sits behind a free-tier gateway that returns 502
-on slow requests, and the only slow request is a *successful* login — the one
-that goes on to scrape a profile. The observable symptom is correct passwords
-failing while wrong ones are rejected cleanly.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Pooled endpoint for application requests. |
+| `DIRECT_DATABASE_URL` | Unpooled endpoint to the **same** DB for migrations. |
+| `SESSION_SECRET` | At least 32 random characters; rotation signs everyone out. |
+| `PESU_AUTH_BASE_URL` | Existing trusted PESU-auth HTTPS endpoint. |
+| `SUPER_ADMIN_SRN` | Recovery owner; PESU verification is required before a grant. |
+| `PRODUCTION_MIGRATIONS` | Optional `deploy`: migrate before a Vercel Production build. |
+| `PESU_AUTH_TIMEOUT_MS` | Optional, maximum 25000 ms per login attempt. |
+| `PRIVACY_MIN_COHORT_SIZE` | Deprecated and ignored. Every nonempty cohort is shown; recipient names stay hidden. |
 
-The image is `pesudev/pesu-auth:latest`, listening on 5000, with a `/health`
-endpoint. `docker-compose.yml` shows the shape.
+**Production database credentials and session secrets belong only in Production.**
+Never assign them to Preview or Development. Previews need their own database,
+migrations, session secret and synthetic data. Keep Vercel fork protection
+on and require reviewed code and passing CI on the production branch. Build
+code can read the environment; never expose production secrets to unreviewed PRs.
 
-If you use the public hosted instance, set `PESU_AUTH_BASE_URL` to
-`https://pesuauth.onrender.com` in your hosting dashboard (including any preview
-or other deployment environments that use it), then redeploy so the app picks
-up the value. The previous production host shuts down on October 27, 2026;
-changing this repository does not update an existing deployment's variables.
-The API routes and request/response formats are unchanged.
+## Release
 
-If the keep-warm workflow is enabled, also update the GitHub Actions repository
-variable `PESU_AUTH_URL` to `https://pesuauth.onrender.com` under
-Settings → Secrets and variables → Actions → Variables. It is configured
-separately from the app's `PESU_AUTH_BASE_URL`. Keep your own instance's URL
-if you self-host authentication.
+1. Run `npm ci`, lint, typecheck, tests and a build on Node 22. Run the demo and
+   admin integration checks against a disposable localhost database.
+2. Retain a PostgreSQL backup or Neon recovery point. The owner console also
+   provides a portable private logical backup.
+3. Verify the pooled and direct URLs identify the intended production DB.
+4. Choose a migration workflow:
+   - With `PRODUCTION_MIGRATIONS=deploy`, Vercel production releases apply
+     migrations before building. The script verifies both URLs identify the
+     same database and refuses a pooled migration endpoint. Preview builds
+     always check migration status without changing the schema.
+   - Without that setting, run `npm run db:deploy` from an operator-controlled
+     release environment first. Builds refuse an outdated database schema.
+5. Publish the reviewed commit to the verified project and environment. Check
+   `/api/health`, public `/overview`, PESU login and `/admin`. Verify a small
+   admin entry and reviewed CSV import; remove test entries reversibly.
+6. Confirm the public domain serves the tested release. Keep the previous
+   deployment for application rollback. Do not drop migrated columns during
+   application rollback.
 
-No credential is stored by either service. The password crosses this server once
-per login and is never written down.
+`npm run build` never migrates. `npm run seed` is for an empty new database and
+must not run on routine releases: it overwrites configured policy/tax defaults.
+Production migrations are an explicit operator choice, never a PR-preview action.
 
-## Database
+## Owner recovery and handover
+
+Set `SUPER_ADMIN_SRN` in Production to the intended owner's SRN and deploy.
+After a **successful PESU login**, that account regains ownership and an
+accidental suspension clears atomically with an audit entry. This does not
+bypass PESU authentication or recover a lost PESU password.
+
+Only owners manage roles at `/admin/users`. Admins manage outcomes, imports,
+policies, reports and placement exports. Student offers retain their quotas.
+Anonymous admin entry does not consume the administrator's personal quota or
+claim that the administrator received the offers.
+
+Keep at least two verified owners. Owners cannot remove their own access, the
+last active owner cannot be removed, and the configured recovery owner cannot
+be demoted or suspended through the app. For handover, grant and verify the new
+owner, update the host's recovery SRN, then ask another owner to revoke the
+retiring role. Transfer hosting, database and auth accounts separately.
+
+If the database provider login is lost, recover that account or retain a private
+backup through a verified owner. Do not replace an unknown database with an
+empty one and assume the existing records are disposable.
+
+## Admin operations
+
+- `/admin/offers`: search, sort, edit and reversibly remove outcomes. Edits
+  preserve complete prior offer/package snapshots and a reason. Stale edits
+  fail instead of overwriting another admin's work.
+- `/admin/imports`: download a template, upload UTF-8 CSV exported from Excel
+  or Google Sheets, review rows/counts, then commit. Imports are atomic,
+  fingerprinted and undoable; limits are 200 rows, 500 outcomes and 500 KB.
+  Identical files cannot be applied twice. Changed overlapping files still
+  require review because anonymous records cannot establish student identity.
+- `/admin/batches`: create batches, set quotas, tier boundaries and season
+  dates, and archive student entry while retaining admin correction access.
+- `/admin`: database/auth diagnostics, placement exports and owner-only backups.
+- `/admin/audit`: role changes, edits, import identifiers, exports and removals.
+
+Blank compensation, acceptance decisions and dates stay unknown. Internship-only
+outcomes do not count conditional FTE packages as awarded compensation. Each
+stated headcount creates anonymous outcomes. Genuine student submissions
+replace matching stand-ins so both are not counted. Admin and imported outcomes
+are classified separately from student reports in analytics.
+
+Years 9000 and above are reserved for synthetic demo/integration cohorts. They
+remain available in the admin editor but are excluded from production batch
+navigation and cannot supply policy defaults for real batches. Never import
+real placement data into a reserved test year.
+
+## Publish a historical archive
+
+The owner-only `/admin/archive` imports a prepared, gzip-compressed JSON archive
+without dropping compensation components or recruiting rounds. It requires a
+private database backup downloaded by that owner within the preceding 24 hours.
+Review the batch counts before committing; publication is one transaction and
+receives an audit fingerprint. An identical retry is a no-op, including after
+later admin corrections. A changed archive with overlapping historical batches
+is refused instead of replacing existing data. Correct published outcomes in
+the ordinary admin editor, which records revisions and permits soft removal.
+
+The envelope is `{ "format": "pesu-placement-archive", "version": 1,
+"expected": { "2026": 123 }, "entries": [...] }`. The strict schema in
+`lib/admin/archive-schema.ts` describes every supported field. Outcomes must be
+anonymous and retain source notes; recipient identity, CGPA and offer dates
+cannot be inferred from a headcount. Stable outcome IDs link each compensation
+package and recruiting round. Unknown values remain null. Recorded tier keys
+must exist in the target batches; batch policy is never overwritten. Genuine
+student submissions displace matching anonymous stand-ins.
+
+Limits are 500 KB compressed, 24 MB expanded, 10,000 outcomes and 20 batches.
+Compress before uploading so the normal Server Action request limit is retained.
+Source workbooks, archive uploads and private backups stay outside the public
+repository. `npm run archive:verify` exercises access checks, transaction
+rollback, preserved detail, concurrent retries and genuine submission matching
+against a disposable localhost database.
+
+## Backup and restore
+
+The owner-only `/api/admin/backup` endpoint downloads a gzip-compressed,
+consistent DB snapshot (`.json.gz`) to fit function response limits.
+It includes private student identifiers, placement/configuration tables,
+edit history, moderation and audit records. It excludes infrastructure credentials
+and ephemeral rate-limit buckets. Store backups encrypted with restricted access,
+outside Git. Ordinary placement CSV/JSON exports are **not** full backups.
+
+An operator with DB access can also run:
 
 ```bash
-npm run db:deploy    # prisma migrate deploy && prisma generate
-npm run seed         # idempotent; safe to re-run on every release
+npm run backup:create -- /private/placement-private-backup.json
 ```
 
-`seed` writes the configuration layer — campuses, branches, programmes, tier
-boundaries, submission policy, tax slabs. It is upsert-only and keyed on natural
-unique fields, so running it on each deploy is the intended pattern.
-
-Two things in the seed are placeholders that must be reviewed before the numbers
-they drive are shown to anyone as authoritative:
-
-- **Tax slabs** are the Union Budget 2025 new-regime figures for FY 2025-26.
-  Check them against the current Finance Act. They are editable rows, not code.
-- **CPI** has only a base year. Real index values are deliberately not invented,
-  because a fabricated series would silently corrupt every inflation-adjusted
-  comparison. Until an admin enters a real series, only nominal figures are shown.
-
-## Option A — a container
+To recover, point the environment at a **new, empty PostgreSQL database**, run
+`npm run db:deploy` (do not seed), then:
 
 ```bash
-docker build -t placement-tracker .
-docker run -p 3000:3000 --env-file .env placement-tracker
+npm run backup:restore -- /private/placement-private-backup.json.gz --empty-database
 ```
 
-The image builds `output: "standalone"`, runs as a non-root user, and carries a
-healthcheck against `/api/health`. Migrations are **not** run at startup —
-running them from N concurrently starting replicas is how a schema gets
-corrupted. Run them as a release step:
+Restore accepts compressed downloads and older plain JSON backups, checks the
+exact migration set and refuses a populated target. All
+tables restore in one transaction; failure leaves no partial dataset. Periodically
+test restores, verifying counts, owner login, policies and totals before routing
+traffic. PostgreSQL/provider backups remain the primary recovery route for large
+DBs or recovery before any owner has signed in.
+
+## Portable deployment
+
+Configure ordinary PostgreSQL, PESU-auth, the recovery SRN and session secret in
+the gitignored `.env.production.local`. Load that environment into the operator's
+release shell before applying migrations. Never use local development DB
+passwords in production.
 
 ```bash
-docker run --rm --env-file .env placement-tracker npx prisma migrate deploy
+npm ci
+npm run db:deploy
+docker compose -f compose.production.yml up -d --build
 ```
 
-Fly.io, Railway, Render and Cloud Run all take this image directly. Set the
-release command to the migrate line above.
+The image runs standalone Next.js as an unprivileged user. Compose binds it to
+loopback; put a TLS reverse proxy in front with request limits. Provide backups,
+restart monitoring and host maintenance. Runtime credentials are excluded from
+the Docker build context. PESU-auth remains separate; use HTTPS across hosts.
 
-## Option B — Vercel
+## Performance
 
-Push the repository and set the environment variables in the project settings.
-
-`next.config.ts` turns `output: "standalone"` OFF when `VERCEL=1`, and that is
-load-bearing rather than tidiness. Vercel traces dependencies itself after the
-build and reads `.next/next-server.js.nft.json`; a standalone build does not
-write that file at that path, so the build compiles cleanly and then dies in
-Vercel's `onBuildComplete` with an ENOENT for a file this repository never
-mentions.
-
-Two things to get right:
-
-- The `vercel-build` script runs `prisma migrate deploy` before the build, since
-  Vercel has no release phase of its own. Set `DIRECT_DATABASE_URL` or that step
-  will fail against the pooler.
-- Use a pooled connection string for `DATABASE_URL`. Serverless functions open a
-  connection each, and the pool in `lib/db.ts` (max 10) is per instance, not
-  global. Neon's pooled endpoint or Supabase's transaction pooler both work.
-- Turn off preview deployments, or point them at a separate database. Otherwise
-  every pull request branch migrates production during its build.
-
-## After deploying
-
-1. `GET /api/health` returns `{"status":"ok"}` — it checks the database, and
-   answers 503 without narrating why.
-2. Log in as `SUPER_ADMIN_SRN` and confirm `/admin/reports` is reachable.
-3. Confirm `/overview` shows the batch you expect. A batch nobody has reported
-   on shows that plainly rather than borrowing a number from another year;
-   that is correct behaviour, not an error.
-
-## Demo data on a public deployment
-
-`npm run demo:9998` creates batch 9998. It is safe to leave on a public
-instance — the students are synthetic, the company names are invented, and the
-batch is never mixed into a real batch's statistics. It gives a visitor
-something to look at before the season starts.
-
-`npm run demo:login` refuses to run when `NODE_ENV=production`.
-
-## Backups
-
-The database is the entire product. Every offer is a thing a student typed once
-and will not type again. Turn on your provider's automated backups before the
-first real submission, and confirm a restore actually works before the season
-starts rather than after.
+App functions and DB are co-located. Public analytics use versioned Next.js
+cache entries, bounded per-process connection pools, sidebar prefetching and
+navigation caching. DB triggers increment batch revisions for offer, package
+and component edits. Live pages refresh on revisions and pause polling while
+hidden. Batch setting edits also increment the revision. Permissions always
+read current database state. Monitor usage before increasing polling frequency;
+provider cold starts remain a separate source of latency.

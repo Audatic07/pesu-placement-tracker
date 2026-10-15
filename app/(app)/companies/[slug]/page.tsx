@@ -1,23 +1,14 @@
+import { positiveInteger, singleParams, type SearchParams } from "@/lib/query-params";
+import { formatLpa, formatCount, formatCompactInr } from "@/lib/format";
+import { CYCLE_LABELS } from "@/lib/offers/labels";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { getCurrentStudent } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { getCompanyTrend } from "@/lib/analytics/queries";
-import { canShowName } from "@/lib/privacy/gate";
-import {
-  EmptyState,
-  PageHeader,
-  Panel,
-  Stat,
-  StatGrid,
-  StatusBadge,
-  Tag,
-  formatCompactInr,
-  formatCount,
-  formatDate,
-  formatLpa,
-  type Tone,
-} from "@/components/ui/primitives";
+import { historicalSourceQuote } from "@/lib/comp/source-quote";
+import { SummaryTable } from "@/components/data/summary-table";
+import { EmptyState, PageHeader, Panel, Stat, StatGrid } from "@/components/ui/primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -27,426 +18,119 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return { title: `${company?.name ?? "Company"} · PESU Placement Tracker` };
 }
 
-const STATUS: Record<string, { label: string; tone: Tone }> = {
-  COMPLETED: { label: "Hired", tone: "good" },
-  ANNOUNCED: { label: "No result recorded", tone: "neutral" },
-  IN_PROGRESS: { label: "In progress", tone: "accent" },
-  NO_HIRES: { label: "Interviewed, hired nobody", tone: "critical" },
-  DITCHED: { label: "Never ran the process", tone: "warning" },
-};
-
-const CYCLE: Record<string, string> = {
-  SUMMER_INTERNSHIP: "Summer internship",
-  SIX_MONTH_INTERNSHIP: "Internship",
-  FULL_TIME: "Full time",
-};
-
-const ROUND: Record<string, string> = {
-  PRE_PLACEMENT_TALK: "Pre-placement talk",
-  RESUME_SHORTLIST: "Resume shortlist",
-  ONLINE_ASSESSMENT: "Online assessment",
-  GROUP_DISCUSSION: "Group discussion",
-  TAKE_HOME_ASSIGNMENT: "Take-home",
-  HACKATHON: "Hackathon",
-  TECHNICAL_INTERVIEW: "Technical interview",
-  SYSTEM_DESIGN: "System design",
-  MANAGERIAL: "Managerial",
-  HIRING_MANAGER: "Hiring manager",
-  HR: "HR",
-  OTHER: "Other",
-};
-
-const VERIFICATION: Record<string, { label: string; tone: Tone }> = {
-  UNVERIFIED: { label: "Not corroborated", tone: "neutral" },
-  CORROBORATED: { label: "Corroborated", tone: "good" },
-  ADMIN_VERIFIED: { label: "Verified", tone: "good" },
-  DISPUTED: { label: "Disputed", tone: "critical" },
-};
-
-const MODE: Record<string, string> = {
-  ONLINE: "Online",
-  IN_PERSON: "In person",
-  HYBRID: "Hybrid",
-  UNKNOWN: "Not recorded",
-};
-
-export default async function CompanyPage({
-  params,
-  searchParams,
-}: {
+export default async function CompanyPage({ params, searchParams }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
-  const [{ slug }, query] = await Promise.all([params, searchParams]);
-
+  const [student, { slug }, rawQuery] = await Promise.all([getCurrentStudent(), params, searchParams]);
+  const query = singleParams(rawQuery);
+  const requestedYear = positiveInteger(query.batch, 0);
+  const offerPage = Math.min(100000, positiveInteger(query.page));
+  const pageSize = 25;
   const company = await prisma.company.findUnique({
     where: { slug },
     include: {
       parent: { select: { name: true, slug: true } },
       children: { select: { name: true, slug: true } },
       aliases: { select: { alias: true } },
-      // Every report on record for this company, whichever season it came from.
-      // Removed and soft-deleted records are excluded here rather than filtered
-      // in the view.
       offers: {
-        where: { deletedAt: null, verification: { not: "REMOVED" } },
+        where: {
+          deletedAt: null, verification: { not: "REMOVED" },
+          batch: { year: { ...(process.env.NODE_ENV === "production" ? { lt: 9000 } : {}), ...(requestedYear ? { equals: requestedYear } : {}) } },
+        },
+        take: student ? pageSize + 1 : 0,
+        skip: student ? (offerPage - 1) * pageSize : 0,
         select: {
-          id: true,
-          roleTitle: true,
-          cycle: true,
-          nameVisibility: true,
-          verification: true,
-          deletedAt: true,
-          cgpaBand: true,
-          createdAt: true,
-          student: { select: { name: true } },
-          batch: { select: { year: true } },
-          branch: { select: { code: true } },
-          compensation: { select: { ctcLpa: true } },
+          id: true, roleTitle: true, cycle: true, nameVisibility: true, verification: true,
+          nature: true, studentId: true, processNotes: true,
+          deletedAt: true, source: true,
+          batch: { select: { year: true } }, compensation: { select: { ctcLpa: true, rawNote: true, stipendPerMonthInr: true } },
         },
-        orderBy: [{ batch: { year: "desc" } }, { createdAt: "desc" }],
-      },
-      drives: {
-        include: {
-          batch: { select: { year: true } },
-          roles: {
-            include: {
-              compensation: { include: { components: true } },
-              rounds: { orderBy: { sequence: "asc" } },
-            },
-          },
-        },
-        orderBy: [{ batch: { year: "desc" } }, { visitNumber: "asc" }],
+        orderBy: [{ batch: { year: "desc" } }, { createdAt: "desc" }, { id: "asc" }],
       },
     },
   });
-
   if (!company) notFound();
-
   const trend = await getCompanyTrend(company.id);
-  const years = [...new Set(trend.map((point) => point.batchYear))];
-  const allCtc = trend.map((point) => point.highestCtc).filter((v): v is number => v !== null);
-
+  const years = [...new Set(trend.map((row) => row.batchYear))];
+  const allCtc = trend.flatMap((row) => row.highestCtc === null ? [] : [row.highestCtc]);
   const latest = trend[trend.length - 1];
-
-  const otherNames = company.aliases
-    .map((alias) => alias.alias)
+  const selectedTrend = requestedYear ? trend.filter((row) => row.batchYear === requestedYear) : trend;
+  const visibleOffers = company.offers.slice(0, pageSize);
+  const hasNext = company.offers.length > pageSize;
+  const pageHref = (page: number) => ({ pathname: `/companies/${slug}`, query: { ...(requestedYear ? { batch: String(requestedYear) } : {}), page: String(page) } });
+  const aliases = company.aliases.map((row) => row.alias)
     .filter((alias) => alias.toLowerCase() !== company.name.toLowerCase());
-
-  const backHref = query["batch"] ? `/companies?batch=${query["batch"]}` : "/companies";
 
   return (
     <>
-      <PageHeader
-        title={company.name}
-        description={
-          <>
-            {company.parent ? (
-              <>
-                Part of{" "}
-                <Link href={`/companies/${company.parent.slug}`} className="underline underline-offset-2">
-                  {company.parent.name}
-                </Link>
-                .{" "}
-              </>
-            ) : null}
-            {otherNames.length > 0 ? <>Also recorded as {otherNames.join(", ")}. </> : null}
-            {company.children.length > 0 ? (
-              <>
-                Arms tracked separately:{" "}
-                {company.children.map((child, index) => (
-                  <span key={child.slug}>
-                    {index > 0 ? ", " : ""}
-                    <Link href={`/companies/${child.slug}`} className="underline underline-offset-2">
-                      {child.name}
-                    </Link>
-                  </span>
-                ))}
-                .
-              </>
-            ) : null}
-          </>
-        }
-        actions={
-          <Link
-            href={backHref}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-[13px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            <ArrowLeft size={14} />
-            All companies
-          </Link>
-        }
-      />
-
+      <PageHeader title={company.name} description={
+        <>
+          {company.parent ? <>Part of <Link href={`/companies/${company.parent.slug}`} className="underline">{company.parent.name}</Link>. </> : null}
+          {aliases.length ? <>Also recorded as {aliases.join(", ")}. </> : null}
+          {company.children.length ? <>Divisions: {company.children.map((child, index) => (
+            <span key={child.slug}>{index ? ", " : ""}<Link href={`/companies/${child.slug}`} className="underline">{child.name}</Link></span>
+          ))}.</> : null}
+        </>
+      } actions={<Link href={query.batch ? `/companies?batch=${query.batch}` : "/companies"} className="text-[13px] underline">All companies</Link>} />
       <div className="flex flex-col gap-5 p-6">
         <StatGrid>
           <Stat label="Seasons on record" value={formatCount(years.length)} hint={years.join(", ")} />
-          <Stat
-            label="Reported here"
-            value={formatCount(company.offers.length)}
-            hint="Across every season on record"
-          />
-          <Stat
-            label="Highest CTC"
-            value={allCtc.length ? formatLpa(Math.max(...allCtc)) : "—"}
-          />
-          <Stat
-            label="Most recent"
-            value={formatLpa(latest?.highestCtc)}
-            hint={latest ? `Batch of ${latest.batchYear}` : undefined}
-          />
-          <Stat
-            label="Visits on record"
-            value={formatCount(company.drives.length)}
-            hint={company.drives.length > 0 ? "Recorded drives" : "None"}
-          />
+          <Stat label="Offers recorded" value={formatCount(trend.reduce((sum, row) => sum + row.offers, 0))} hint="Historical and student submissions" />
+          <Stat label="Highest awarded CTC" value={allCtc.length ? formatLpa(Math.max(...allCtc)) : "—"} hint="Across all seasons; excludes source quotes" />
+          <Stat label="Most recent awarded CTC" value={formatLpa(latest?.highestCtc)} hint={latest ? `Batch of ${latest.batchYear}` : undefined} />
         </StatGrid>
-
-        {trend.length > 1 ? (
-          <Panel
-            title="Year on year"
-            description="Nominal figures. One row per season and cycle, counted from the offers on record for it."
-            padded={false}
-          >
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--line)" }}>
-                  {["Batch", "Cycle", "Offers", "Highest CTC", "Median CTC", "CGPA bar"].map(
-                    (heading, index) => (
-                      <th
-                        key={heading}
-                        className={`h-8 px-4 text-[11px] font-medium uppercase tracking-[0.05em] ${
-                          index >= 2 ? "text-right" : "text-left"
-                        }`}
-                        style={{ color: "var(--text-tertiary)" }}
-                      >
-                        {heading}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {[...trend].reverse().map((point, index) => (
-                  <tr
-                    key={`${point.batchYear}-${point.cycle}-${index}`}
-                    style={{ borderBottom: "1px solid var(--line)" }}
-                  >
-                    <td className="tnum h-[38px] px-4 font-medium">{point.batchYear}</td>
-                    <td className="px-4" style={{ color: "var(--text-secondary)" }}>
-                      {CYCLE[point.cycle] ?? point.cycle}
-                    </td>
-                    <td className="tnum px-4 text-right">{formatCount(point.studentsPlaced)}</td>
-                    <td className="tnum px-4 text-right">{formatLpa(point.highestCtc)}</td>
-                    <td className="tnum px-4 text-right">{formatLpa(point.medianCtc)}</td>
-                    <td className="tnum px-4 text-right">{point.gpaCutoff ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <form className="flex flex-wrap items-center gap-3 text-[13px]" method="get">
+          <label htmlFor="company-batch">Batch</label>
+          <select id="company-batch" name="batch" defaultValue={requestedYear || ""} className="rounded border border-[var(--line)] bg-[var(--panel)] px-3 py-2">
+            <option value="">All seasons</option>
+            {[...years].sort((a, b) => b - a).map((year) => <option key={year} value={year}>{year}</option>)}
+            {requestedYear && !years.includes(requestedYear) ? <option value={requestedYear}>{requestedYear}</option> : null}
+          </select>
+          <button type="submit" className="rounded border border-[var(--line)] px-3 py-2">Apply</button>
+        </form>
+        {trend.length ? (
+          <Panel title={requestedYear ? `Batch of ${requestedYear}` : "Year on year"} description="Counts are offer outcomes. Source quotes are advertised or prospective FTE figures and are excluded from awarded CTC statistics. Recorded figures are shown even for a single outcome; not reported means no awarded CTC is recorded. Recipient names stay hidden." padded={false}>
+            <SummaryTable head={["Batch", "Cycle", "Offers", "Highest awarded CTC", "Median awarded CTC", "Source CTC quote (highest)", "Stipend / month", "CGPA bar"]}
+              rows={[...selectedTrend].reverse().map((row) => ({ key: row.key, cells: [
+                String(row.batchYear), CYCLE_LABELS[row.cycle], formatCount(row.offers),
+                row.ctcWithheld ? "Withheld" : row.ctcRecords ? formatLpa(row.highestCtc) : "Not reported",
+                row.ctcWithheld ? "Withheld" : row.ctcRecords ? formatLpa(row.medianCtc) : "Not reported",
+                row.quoteWithheld ? "Withheld" : row.highestQuotedCtc === null ? "—" : `${formatLpa(row.highestQuotedCtc)} · quoted only`,
+                row.highestStipend === null ? "—" : formatCompactInr(row.highestStipend), row.gpaCutoff ?? "—",
+              ] }))} />
           </Panel>
-        ) : null}
-
-        {company.offers.length > 0 ? (
-          <Panel
-            title="Offers on record"
-            description="One row per placement, filed here or carried over from the batch's sheet. Each opens the full offer — the package broken down, the rounds, and any notes on the process."
-            padded={false}
-          >
+        ) : <Panel><EmptyState title="No offers recorded yet" description="Offers appear here as submissions are added." /></Panel>}
+        {student ? (
+          <Panel title={requestedYear ? `Offers · ${requestedYear}` : "Recent offers"} description="Open a submission for package and process notes. Historical headcounts have anonymous records. Source quotes do not establish an awarded FTE package." padded={false}>
             <ul>
-              {company.offers.map((offer) => {
-                const verification = VERIFICATION[offer.verification] ?? {
-                  label: offer.verification,
-                  tone: "neutral" as Tone,
-                };
+              {visibleOffers.map((offer) => {
+                const quote = historicalSourceQuote(offer);
                 return (
-                  <li key={offer.id} style={{ borderBottom: "1px solid var(--line)" }}>
-                    <Link
-                      href={`/offers/${offer.id}`}
-                      className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--panel-hover)]"
-                    >
-                      <span className="tnum w-10 shrink-0 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-                        {offer.batch.year}
+                <li key={offer.id} style={{ borderBottom: "1px solid var(--line)" }}>
+                  <Link href={`/offers/${offer.id}?batch=${offer.batch.year}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--panel-hover)]">
+                    <span className="tnum text-[12px]">{offer.batch.year}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">{offer.roleTitle}</span>
+                      <span className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+                        Anonymous
+                        {` · ${CYCLE_LABELS[offer.cycle]}`}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium">{offer.roleTitle}</span>
-                        <span className="block truncate text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-                          {canShowName(offer) && offer.student
-                            ? offer.student.name
-                            : "Reported anonymously"}
-                          {offer.branch ? ` · ${offer.branch.code}` : ""}
-                          {offer.cgpaBand ? ` · CGPA ${offer.cgpaBand}` : ""}
-                          {` · ${CYCLE[offer.cycle] ?? offer.cycle}`}
-                        </span>
-                      </span>
-                      <span className="hidden shrink-0 sm:block">
-                        <StatusBadge tone={verification.tone}>{verification.label}</StatusBadge>
-                      </span>
-                      <span className="tnum w-16 shrink-0 text-right text-[13px]">
-                        {formatLpa(offer.compensation?.ctcLpa ? Number(offer.compensation.ctcLpa) : null, false)}
-                      </span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </Panel>
-        ) : null}
-
-        {company.offers.length === 0 && company.drives.length === 0 ? (
-          <Panel>
-            <EmptyState
-              title="Nothing recorded for this company yet"
-              description="It is in the list because a name matched, but no student has filed an offer here and no imported season covers it."
-            />
-          </Panel>
-        ) : null}
-
-        {company.drives.length > 0 ? (
-          <div
-            className="flex items-baseline gap-2 pt-1 text-[11px] font-medium uppercase tracking-[0.06em]"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            Drives on record
-            <span className="text-[12px] font-normal normal-case tracking-normal">
-              What the placement sheet recorded about each visit: the package advertised, the
-              schedule, and how it ended. The placements themselves are the offers above.
-            </span>
-          </div>
-        ) : null}
-
-        {company.drives.map((drive) => {
-          const status = STATUS[drive.status] ?? { label: drive.status, tone: "neutral" as Tone };
-          const rounds = drive.roles
-            .flatMap((role) => role.rounds)
-            .sort((a, b) => a.sequence - b.sequence);
-
-          return (
-            <Panel
-              key={drive.id}
-              title={`Batch of ${drive.batch.year}${drive.visitNumber > 1 ? ` · visit ${drive.visitNumber}` : ""}`}
-              description={CYCLE[drive.cycle] ?? drive.cycle}
-              actions={<StatusBadge tone={status.tone}>{status.label}</StatusBadge>}
-              padded={false}
-            >
-              <div
-                className="flex flex-wrap gap-x-8 gap-y-2 border-b px-4 py-3 text-[12px]"
-                style={{ borderColor: "var(--line)" }}
-              >
-                <Fact label="Eligible branches">
-                  {drive.eligibleBranches.length > 0 ? (
-                    <span className="flex flex-wrap gap-1">
-                      {drive.eligibleBranches.map((code) => (
-                        <Tag key={code}>{code}</Tag>
-                      ))}
                     </span>
-                  ) : (
-                    "Not recorded"
-                  )}
-                </Fact>
-                <Fact label="CGPA requirement">{drive.gpaCutoffRaw ?? "Not recorded"}</Fact>
-                <Fact label="Pre-placement talk">{formatDate(drive.pptDate)}</Fact>
-              </div>
-
-              <table className="w-full border-collapse text-[13px]">
-                <thead>
-                  <tr style={{ borderBottom: "1px solid var(--line)" }}>
-                    {["Role", "Stipend", "Base", "CTC", "Cash yr 1", "Offers"].map((heading, index) => (
-                      <th
-                        key={heading}
-                        className={`h-8 px-4 text-[11px] font-medium uppercase tracking-[0.05em] ${
-                          index >= 1 ? "text-right" : "text-left"
-                        }`}
-                        style={{ color: "var(--text-tertiary)" }}
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {drive.roles.map((role) => {
-                    const pkg = role.compensation;
-                    const placed =
-                      (role.placedInternship ?? 0) + (role.placedFte ?? 0) + (role.placedBoth ?? 0);
-                    return (
-                      <tr key={role.id} style={{ borderBottom: "1px solid var(--line)" }}>
-                        <td className="h-[38px] px-4">{role.title}</td>
-                        <td className="tnum px-4 text-right">
-                          {pkg?.stipendPerMonthInr
-                            ? formatCompactInr(Number(pkg.stipendPerMonthInr))
-                            : "—"}
-                        </td>
-                        <td className="tnum px-4 text-right">
-                          {formatLpa(pkg?.baseLpa ? Number(pkg.baseLpa) : null, false)}
-                        </td>
-                        <td className="tnum px-4 text-right font-medium">
-                          {formatLpa(pkg?.ctcLpa ? Number(pkg.ctcLpa) : null, false)}
-                        </td>
-                        <td className="tnum px-4 text-right">
-                          {formatLpa(
-                            pkg?.firstYearCashLpa ? Number(pkg.firstYearCashLpa) : null,
-                            false,
-                          )}
-                        </td>
-                        <td className="tnum px-4 text-right">{placed > 0 ? placed : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {rounds.length > 0 ? (
-                <div className="border-t px-4 py-3" style={{ borderColor: "var(--line)" }}>
-                  <div
-                    className="mb-2 text-[11px] font-medium uppercase tracking-[0.05em]"
-                    style={{ color: "var(--text-tertiary)" }}
-                  >
-                    Process
-                  </div>
-                  <ol className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                    {rounds.map((round, index) => (
-                      <li key={round.id} className="flex items-center gap-2">
-                        {index > 0 ? (
-                          <span aria-hidden style={{ color: "var(--text-tertiary)" }}>
-                            →
-                          </span>
-                        ) : null}
-                        <span
-                          className="inline-flex items-baseline gap-2 rounded-[var(--radius-control)] px-2 py-1 text-[12px]"
-                          style={{ background: "var(--viz-track)" }}
-                        >
-                          <span>{ROUND[round.kind] ?? round.kind}</span>
-                          <span className="tnum" style={{ color: "var(--text-tertiary)" }}>
-                            {round.rawSchedule ?? formatDate(round.heldOn)}
-                          </span>
-                          {round.mode !== "UNKNOWN" ? (
-                            <span style={{ color: "var(--text-tertiary)" }}>
-                              {MODE[round.mode]}
-                            </span>
-                          ) : null}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
-            </Panel>
-          );
-        })}
+                    <span className="tnum text-right text-[13px]">{offer.compensation?.ctcLpa != null ? formatLpa(Number(offer.compensation.ctcLpa)) : quote?.ctcLpa != null ? `${formatLpa(quote.ctcLpa)} · source quote` : offer.compensation?.stipendPerMonthInr != null ? `${formatCompactInr(Number(offer.compensation.stipendPerMonthInr))}/mo stipend` : "Not reported"}</span>
+                  </Link>
+                </li>
+              ); })}
+            </ul>
+            {!visibleOffers.length ? <p className="p-4 text-[13px]">No offers on this page for the selected batch.</p> : null}
+            {offerPage > 1 || hasNext ? <nav aria-label="Offer pages" className="flex items-center justify-between p-4 text-[13px]">
+              {offerPage > 1 ? <Link href={pageHref(offerPage - 1)} className="underline">Previous</Link> : <span />}
+              <span>Page {offerPage}</span>
+              {hasNext ? <Link href={pageHref(offerPage + 1)} className="underline">Next</Link> : <span />}
+            </nav> : null}
+          </Panel>
+        ) : null}
       </div>
     </>
-  );
-}
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ color: "var(--text-tertiary)" }}>{label}</div>
-      <div className="mt-0.5" style={{ color: "var(--text-secondary)" }}>
-        {children}
-      </div>
-    </div>
   );
 }

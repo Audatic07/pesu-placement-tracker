@@ -4,17 +4,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 
-/**
- * Filters, held in the URL.
- *
- * Every control here writes to the query string rather than to component state.
- * That is the whole design: a filtered view is a link, the back button undoes a
- * filter, a refresh keeps the view, and a student can paste "tier 1 companies
- * open to ECE that hired someone" into a group chat and have it survive.
- *
- * Navigation runs inside a transition so the table dims rather than blanks
- * while the server re-queries.
- */
+/** View state lives in the URL so filters survive sharing, refresh and navigation. */
 
 export type FacetOption = { key: string; label: string; count: number };
 

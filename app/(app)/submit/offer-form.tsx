@@ -6,14 +6,12 @@ import { Plus, X } from "lucide-react";
 import { submitOffer, type SubmitState } from "./actions";
 import { rowCount, useDraft, type DraftFields } from "./use-draft";
 import {
-  Checkbox,
-  Field,
   FormSection,
   Select,
   TextArea,
   TextInput,
 } from "@/components/forms/fields";
-import { formatLpa } from "@/components/ui/primitives";
+import { formatLpa } from "@/lib/format";
 import type { QuotaState } from "@/lib/policy/quota";
 import { isValidatedField, validateField, type FieldErrors } from "@/lib/offers/validate";
 
@@ -26,12 +24,6 @@ import { isValidatedField, validateField, type FieldErrors } from "@/lib/offers/
  * is visibly optional, and the only truly required answers are the company, the
  * role and which kind of offer it was.
  */
-
-const CYCLES = [
-  { value: "FULL_TIME", label: "Full-time offer" },
-  { value: "SIX_MONTH_INTERNSHIP", label: "Six-month internship" },
-  { value: "SUMMER_INTERNSHIP", label: "Summer internship" },
-];
 
 const NATURES = [
   { value: "FTE_ONLY", label: "Full-time only" },
@@ -202,6 +194,8 @@ export function OfferForm({
   }
 
   return (
+    // The form delegates blur events from its native inputs for field validation.
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <form
       ref={formRef}
       action={formAction}
@@ -271,7 +265,7 @@ export function OfferForm({
         />
         <datalist id="company-suggestions">
           {companySuggestions.map((name) => (
-            <option key={name} value={name} />
+            <option key={name} value={name}>{name}</option>
           ))}
         </datalist>
 
@@ -373,13 +367,7 @@ export function OfferForm({
                   error={errorFor(componentRows.length > 1 ? `componentAmount:${index}` : "componentAmount")}
                 />
               </div>
-              <label
-                className="flex h-[30px] items-center gap-1.5 whitespace-nowrap text-[12px]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                <input type="checkbox" name="componentOneTime" value="true" className="size-[14px] accent-[var(--accent-solid)]" />
-                One-time
-              </label>
+              <OneTimeField index={index} />
               {componentRows.length > 1 ? (
                 <button
                   type="button"
@@ -407,7 +395,7 @@ export function OfferForm({
 
       <FormSection
         title="You, at the time"
-        description="Shown in bands, never exactly, and never next to your name unless you choose to be named. This is what makes 'does CGPA actually matter' answerable."
+        description="Your CGPA and placement details can be shown, including for a single outcome. Your name and SRN stay hidden from placement views."
         columns={3}
       >
         <TextInput
@@ -599,11 +587,7 @@ export function OfferForm({
       </FormSection>
 
       <FormSection title="Your name" columns={1}>
-        <Checkbox
-          name="showName"
-          label="Show my name on this offer"
-          hint="Off by default. Left off, this appears as an anonymous offer — your branch and a CGPA band are shown, never your name or SRN. You can change this later."
-        />
+        <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>Offers are anonymous. Your name and SRN are never shown alongside your placement details.</p>
       </FormSection>
 
       {exhausted.length > 0 ? (
@@ -624,6 +608,23 @@ export function OfferForm({
         </span>
       </div>
     </form>
+  );
+}
+
+function OneTimeField({ index }: { index: number }) {
+  return (
+    <label
+      className="flex h-[30px] items-center gap-1.5 whitespace-nowrap text-[12px]"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      <input
+        type="checkbox"
+        name="componentOneTime"
+        value={index}
+        className="size-[14px] accent-[var(--accent-solid)]"
+      />
+      One-time
+    </label>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { positiveInteger } from "@/lib/query-params";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -65,15 +66,16 @@ const PERSONAL: NavItem[] = [
 const ANONYMOUS: NavItem[] = [{ href: "/submit", label: "Add an offer", icon: Plus }];
 
 /**
- * Batches from here up are synthetic, built by scripts/demo. The demo batch is
- * deliberately live so a first visitor sees a filled tracker rather than an
- * empty one, which is exactly why it has to say so: its invented companies
- * read like real ones. A constant rather than a column because no real cohort
- * will ever graduate in a year this large.
+ * Batches from here up are synthetic, built by scripts/demo. Production batch
+ * navigation excludes them, but local development still needs to distinguish
+ * their invented companies from real placement data. The boundary matches
+ * lib/analytics/batches.ts; no real cohort graduates in a year this large.
  */
 const DEMO_BATCH_FLOOR = 9000;
 
 const ADMIN: NavItem[] = [
+  { href: "/admin", label: "Operations", icon: LayoutDashboard },
+  { href: "/admin/offers", label: "Manage data", icon: Building2, prefix: true },
   { href: "/admin/reports", label: "Reports", icon: ShieldAlert, prefix: true },
   { href: "/admin/audit", label: "Audit log", icon: FileText },
 ];
@@ -94,7 +96,7 @@ export function Sidebar(props: SidebarProps) {
   // A server layout cannot read search params, so the shell resolves the active
   // batch here: the URL wins, and the student's own graduating year is the
   // fallback when they have not chosen one.
-  const fromUrl = Number.parseInt(search.get("batch") ?? "", 10);
+  const fromUrl = positiveInteger(search.get("batch") ?? undefined, 0);
   const activeBatch = props.batches.includes(fromUrl) ? fromUrl : props.activeBatch;
 
   // Signing in from the shell should return the visitor to the page they were
@@ -310,7 +312,6 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
 
       {open ? (
         <ul
-          role="listbox"
           className="absolute left-0 right-0 top-9 z-10 overflow-hidden rounded-[var(--radius-panel)] border py-1"
           style={{
             borderColor: "var(--line-strong)",
@@ -322,8 +323,7 @@ function BatchSwitcher({ batches, active }: { batches: number[]; active: number 
             <li key={year}>
               <Link
                 href={`${pathname}?batch=${year}`}
-                role="option"
-                aria-selected={year === active}
+                aria-current={year === active ? "true" : undefined}
                 className="flex h-7 items-center px-2.5 text-[13px]"
                 style={{ color: year === active ? "var(--text)" : "var(--text-secondary)" }}
               >

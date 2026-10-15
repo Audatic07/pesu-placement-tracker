@@ -1,39 +1,8 @@
 import "server-only";
 import { z } from "zod";
 
-/**
- * Client for the PESU authentication service (https://github.com/pesu-dev/auth).
- *
- * SECURITY BOUNDARY — read before editing.
- *
- * The student's PESU password passes through this module and nowhere else. It
- * arrives from a server action, is forwarded once over HTTPS, and is then
- * unreachable. Specifically, it must never be:
- *
- *   - persisted to the database, in any form, hashed or otherwise;
- *   - written to a log, an error message, or a trace;
- *   - included in a thrown error's payload;
- *   - sent from the browser to the PESU service directly.
- *
- * The third point is why every error below is constructed by hand instead of
- * re-thrown: a fetch failure can otherwise carry the request body into the
- * stack trace, and that body is a live credential.
- *
- * `server-only` makes importing this from a client component a build error
- * rather than a runtime surprise.
- */
-
-/**
- * EVERY field here is optional, and that is not defensiveness — it is the
- * upstream contract. `ProfileModel` declares each field as `str | None`, and
- * the response is serialised with `exclude_none=True`, so any field PESU could
- * not scrape is absent from the JSON rather than null.
- *
- * An earlier version required `name` and `srn`. That parses fine for a failed
- * login (there is no profile at all) and blows up only for a SUCCESSFUL one
- * whose profile is missing a field — so the bug was invisible to every test
- * that used a wrong password, which is every test one can safely write.
- */
+// Passwords are forwarded to PESU over HTTPS and never persisted or logged.
+// Upstream profile fields may be absent when PESU cannot scrape them.
 const PESU_PROFILE = z.object({
   name: z.string().optional(),
   prn: z.string().optional(),
@@ -116,24 +85,15 @@ function baseUrl(): string {
 
 function timeoutMs(): number {
   const parsed = Number.parseInt(process.env.PESU_AUTH_TIMEOUT_MS ?? "", 10);
-  /*
-   * A rejected login answers in about four seconds, because it stops as soon as
-   * the credentials fail. A SUCCESSFUL one then scrapes the profile and, if
-   * asked, the separate "know your class and section" page — several times
-   * longer. The old 20s ceiling was comfortably above the failure path and
-   * below the success path, which is the worst possible place for it: logins
-   * only timed out when the password was right.
-   */
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 45_000;
+  // Two bounded attempts leave time for provisioning within the 60-second action.
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 25_000) : 25_000;
 }
 
 /** Gateway errors from the host, not answers from the service. Worth retrying. */
 const TRANSIENT_STATUSES = new Set([502, 503, 504, 520, 521, 522, 524]);
 
 /**
- * Scales the retry backoff. Tests set it to 0 so a suite that exercises three
- * attempts does not spend five seconds asleep; operators can raise it if the
- * upstream is having a bad day.
+ * Tests disable retry backoff; production waits one second between attempts.
  */
 function backoffScale(): number {
   const parsed = Number.parseFloat(process.env.PESU_AUTH_BACKOFF_SCALE ?? "");
@@ -152,37 +112,14 @@ export async function authenticateWithPesu(
   username: string,
   password: string,
 ): Promise<PesuAuthResult> {
-  /*
-   * Three attempts, and the last one drops `knowYourClassAndSection`.
-   *
-   * That flag makes the service scrape a second page after the profile, which
-   * roughly doubles the work on the only path that does any — a successful
-   * login. On the free tier that is what tips a request past the host's gateway
-   * timeout and produces a 502, so a correct password fails while a wrong one
-   * is rejected cleanly in four seconds.
-   *
-   * The class-and-section data is a fallback for section and branch, both of
-   * which the profile already carries. Losing it to keep the login is the right
-   * trade; failing the login to keep it is not.
-   *
-   * Retrying a POST is safe here because it is a pure credential check with no
-   * side effects upstream.
-   */
-  const attempts = [
-    { withClassInfo: true, backoffMs: 0 },
-    { withClassInfo: true, backoffMs: 1_500 },
-    { withClassInfo: false, backoffMs: 3_000 },
-  ];
+  const attempts = [0, 1_000];
 
   let response: Response | null = null;
   let lastTransient = "";
 
   for (const [index, attempt] of attempts.entries()) {
-    const backoff = attempt.backoffMs * backoffScale();
+    const backoff = attempt * backoffScale();
     if (backoff > 0) await sleep(backoff);
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs());
 
     try {
       response = await fetch(`${baseUrl()}/authenticate`, {
@@ -192,9 +129,9 @@ export async function authenticateWithPesu(
           username,
           password,
           profile: true,
-          knowYourClassAndSection: attempt.withClassInfo,
+          fields: ["name", "prn", "srn", "program", "branch", "semester", "section", "campusCode"],
         }),
-        signal: controller.signal,
+        signal: AbortSignal.timeout(timeoutMs()),
         cache: "no-store",
       });
     } catch (error) {
@@ -213,24 +150,22 @@ export async function authenticateWithPesu(
         reason: "SERVICE_UNAVAILABLE",
         message:
           kind === "AbortError" || kind === "TimeoutError"
-            ? "PESU did not respond in time, across three attempts. It is slow when it has been idle — wait a minute and try once more."
+            ? "PESU did not respond in time, across two attempts. It is slow when it has been idle — wait a minute and try once more."
             : "Could not reach the PESU authentication service. Check your connection and try again.",
       };
-    } finally {
-      clearTimeout(timer);
     }
 
     // A gateway error is the host failing, not the service answering. Retry.
     if (TRANSIENT_STATUSES.has(response.status)) {
-      lastTransient = `upstream ${response.status}${attempt.withClassInfo ? "" : " (without class info)"}`;
+      lastTransient = `upstream ${response.status}`;
       if (index < attempts.length - 1) continue;
 
-      logFailure(username, "SERVICE_UNAVAILABLE", `${lastTransient}, gave up after 3 attempts`);
+      logFailure(username, "SERVICE_UNAVAILABLE", `${lastTransient}, gave up after 2 attempts`);
       return {
         ok: false,
         reason: "SERVICE_UNAVAILABLE",
         message:
-          "PESU's login service failed three times in a row — its host returned a gateway error, which usually means it is overloaded rather than that anything is wrong with your account. Wait a minute and try again.",
+          "PESU's login service failed twice in a row — its host returned a gateway error, which usually means it is overloaded rather than that anything is wrong with your account. Wait a minute and try again.",
       };
     }
 
@@ -260,16 +195,23 @@ export async function authenticateWithPesu(
     };
   }
 
-  // A 400 or 422 means WE sent something the service rejected. That is a bug in
-  // this app, and telling the student their password is wrong would send them
-  // off to reset a password that was never the problem.
-  if (response.status === 400 || response.status === 422) {
+  // A malformed request is an application error, not a wrong password.
+  if (response.status === 400) {
     logFailure(username, "BAD_REQUEST", `service rejected our request (${response.status})`);
     return {
       ok: false,
       reason: "BAD_REQUEST",
       message:
         "This app sent the login service a request it rejected. That is a bug here, not a problem with your account — please report it.",
+    };
+  }
+
+  if (response.status === 422) {
+    logFailure(username, "SERVICE_UNAVAILABLE", "PESU profile could not be parsed");
+    return {
+      ok: false,
+      reason: "SERVICE_UNAVAILABLE",
+      message: "PESU's profile page could not be read. Try again shortly.",
     };
   }
 
@@ -285,7 +227,11 @@ export async function authenticateWithPesu(
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name)) {
+      logFailure(username, "SERVICE_UNAVAILABLE", "response body timed out");
+      return { ok: false, reason: "SERVICE_UNAVAILABLE", message: "PESU did not finish responding in time. Try again shortly." };
+    }
     logFailure(username, "UNEXPECTED_RESPONSE", `body was not JSON (HTTP ${response.status})`);
     return {
       ok: false,
@@ -365,17 +311,4 @@ export async function authenticateWithPesu(
 function fallbackSrn(username: string): string | null {
   const candidate = username.trim().toUpperCase().replace(/\s+/g, "");
   return /^PES\d(UG|PG)\d{2}[A-Z]{2,4}\d{2,4}$/.test(candidate) ? candidate : null;
-}
-
-/** Liveness probe, used by the login page to explain a slow cold start. */
-export async function pesuHealth(): Promise<boolean> {
-  try {
-    const response = await fetch(`${baseUrl()}/health`, {
-      signal: AbortSignal.timeout(5_000),
-      cache: "no-store",
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
 }

@@ -1,0 +1,11 @@
+# Portable alternative to Vercel. Use an existing PostgreSQL service, and put
+# this loopback-bound app behind a TLS reverse proxy. No dev DB passwords here.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file: .env.production.local
+    ports: ["127.0.0.1:3000:3000"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]

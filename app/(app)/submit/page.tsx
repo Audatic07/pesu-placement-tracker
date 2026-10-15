@@ -1,8 +1,13 @@
-import { requireStudent } from "@/lib/auth/rbac";
+import { requireStudent, roleAtLeast } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { getQuotaState } from "@/lib/policy/quota";
 import { ensureBatch } from "@/lib/policy/batch";
-import { EmptyState, PageHeader, Panel } from "@/components/ui/primitives";
+import {
+  Button,
+  EmptyState,
+  PageHeader,
+  Panel,
+} from "@/components/ui/primitives";
 import { OfferForm } from "./offer-form";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +24,7 @@ export default async function SubmitPage() {
           <Panel>
             <EmptyState
               title="We could not work out your graduating batch"
-              description="An offer has to belong to a batch, and yours could not be derived from your SRN or semester. An admin can set it on your profile."
+              description="An offer has to belong to a batch, and yours could not be derived from your verified PESU profile. Contact the site owner to resolve the missing graduation year."
             />
           </Panel>
         </div>
@@ -68,6 +73,16 @@ export default async function SubmitPage() {
         description={`Recording yours is what makes the per-student figures possible for the batch of ${quota.batchYear} — CGPA against package, how many rounds a company really runs, what the process was actually like.`}
       />
       <div className="max-w-4xl p-6">
+        {roleAtLeast(student.role, "ADMIN") ? (
+          <div className="mb-6 flex flex-wrap items-center gap-3 text-[13px]">
+            <p>
+              This form records your own offers and uses your student quota.
+            </p>
+            <Button href="/admin/offers/new">
+              Add admin data for any batch
+            </Button>
+          </div>
+        ) : null}
         <OfferForm
           quota={quota}
           companySuggestions={companies.map((company) => company.name)}

@@ -1,7 +1,10 @@
-import Link from "next/link";
+import { OfferCycle } from "@/generated/prisma/enums";
+import { getBatchYears } from "@/lib/analytics/batches";
+import { choice, choiceList, list, positiveInteger, resolveBatchYear, singleParams, type SearchParams } from "@/lib/query-params";
+import { formatLpa, formatCompactInr, formatCount, formatDate } from "@/lib/format";
+import { CYCLE_LABELS } from "@/lib/offers/labels";
 import { getCurrentStudent } from "@/lib/auth/rbac";
-import { prisma } from "@/lib/db";
-import { queryDirectory, SORT_KEYS, type SortKey } from "@/lib/analytics/directory";
+import { queryDirectory, SORT_KEYS } from "@/lib/analytics/directory";
 import { FilterBar } from "@/components/data/filter-bar";
 import { DataTable, Pagination, type Column } from "@/components/data/table";
 import type { DirectoryRow } from "@/lib/analytics/directory";
@@ -10,10 +13,6 @@ import {
   PageHeader,
   StatusBadge,
   Tag,
-  formatCompactInr,
-  formatCount,
-  formatDate,
-  formatLpa,
   type Tone,
 } from "@/components/ui/primitives";
 
@@ -21,17 +20,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Companies · PESU Placement Tracker" };
 
 const SOURCE: Record<string, { label: string; tone: Tone }> = {
-  placed: { label: "Offers on record", tone: "accent" },
-  visited: { label: "No offers", tone: "neutral" },
-};
-
-/** The facet's values before every season became offer rows. */
-const LEGACY_SOURCE: Record<string, string | undefined> = { students: "placed", imported: "visited" };
-
-const CYCLE: Record<string, string> = {
-  SUMMER_INTERNSHIP: "Summer",
-  SIX_MONTH_INTERNSHIP: "Internship",
-  FULL_TIME: "Full time",
+  students: { label: "Reported", tone: "accent" },
+  imported: { label: "Historical", tone: "neutral" },
 };
 
 const TIER_LABEL: Record<string, string> = {
@@ -40,45 +30,29 @@ const TIER_LABEL: Record<string, string> = {
   TIER_3: "T3",
 };
 
-function list(value: string | undefined): string[] | undefined {
-  const parts = value?.split(",").filter(Boolean);
-  return parts && parts.length > 0 ? parts : undefined;
-}
-
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
   const student = await getCurrentStudent();
-  const params = await searchParams;
+  const params = singleParams(await searchParams);
 
-  const batches = await prisma.batch.findMany({ orderBy: { year: "desc" }, select: { year: true } });
-  const requested = Number.parseInt(params["batch"] ?? "", 10);
-  const batchYear =
-    batches.find((batch) => batch.year === requested)?.year ??
-    student?.graduationYear ??
-    batches[0]?.year ??
-    new Date().getFullYear();
+  const years = await getBatchYears();
+  const batchYear = resolveBatchYear(params["batch"], years, student?.graduationYear ?? null);
 
-  const sortParam = params["sort"];
-  const sort = (SORT_KEYS as readonly string[]).includes(sortParam ?? "")
-    ? (sortParam as SortKey)
-    : "reports";
+  const sort = choice(params["sort"], SORT_KEYS) ?? "reports";
 
   const result = await queryDirectory({
     batchYear,
     search: params["q"],
     tierKeys: list(params["tier"]),
     branchCodes: list(params["branch"]),
-    cycles: list(params["cycle"]) as never,
-    // "students" / "imported" were this facet's values before every season
-    // became offer rows. Any view here is a link someone may have sent, so the
-    // old spellings keep resolving to the outcome they described.
-    sources: list(params["source"])?.map((value) => LEGACY_SOURCE[value] ?? value) as never,
+    cycles: choiceList(params["cycle"], Object.values(OfferCycle)),
+    sources: choiceList(params["source"], ["students", "imported"] as const),
     sort,
     direction: params["dir"] === "asc" ? "asc" : "desc",
-    page: Number.parseInt(params["page"] ?? "1", 10) || 1,
+    page: positiveInteger(params["page"]),
   });
 
   // Sorting and paging are links built from the current query, so every view
@@ -93,7 +67,6 @@ export default async function CompaniesPage({
       render: (row) => (
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{row.companyName}</span>
-          {row.isRepeatVisit ? <Tag title="Returned during the same season">2nd visit</Tag> : null}
           {row.tierKeys.map((tier) => (
             <Tag key={tier}>{TIER_LABEL[tier] ?? tier}</Tag>
           ))}
@@ -115,26 +88,27 @@ export default async function CompaniesPage({
       header: "Cycle",
       hideBelow: "md",
       render: (row) => (
-        <span style={{ color: "var(--text-secondary)" }}>{CYCLE[row.cycle] ?? row.cycle}</span>
+        <span style={{ color: "var(--text-secondary)" }}>{CYCLE_LABELS[row.cycle] ?? row.cycle}</span>
       ),
     },
     {
       key: "source",
-      header: "Outcome",
+      header: "Source",
       hideBelow: "sm",
       render: (row) => {
-        const source = SOURCE[row.reports > 0 ? "placed" : "visited"]!;
+        const source = row.studentReports > 0 && row.historicalReports > 0
+          ? { label: "Mixed", tone: "accent" as const }
+          : SOURCE[row.studentReports > 0 ? "students" : "imported"]!;
         return <StatusBadge tone={source.tone}>{source.label}</StatusBadge>;
       },
     },
     {
       key: "reports",
-      header: "Reports",
+      header: "Offers",
       sortKey: "reports",
       numeric: true,
       width: "88px",
-      render: (row) =>
-        row.reports > 0 ? formatCount(row.reports) : <Muted>—</Muted>,
+      render: (row) => formatCount(row.reports),
     },
     {
       key: "stipend",
@@ -144,20 +118,29 @@ export default async function CompaniesPage({
       width: "92px",
       hideBelow: "lg",
       render: (row) =>
-        row.highestStipendInr ? formatCompactInr(row.highestStipendInr) : <Muted>—</Muted>,
+        row.highestStipendInr !== null ? formatCompactInr(row.highestStipendInr) : <Muted>—</Muted>,
     },
     {
       key: "ctc",
-      header: "CTC",
+      header: "Awarded CTC",
       sortKey: "ctc",
       numeric: true,
       width: "96px",
       render: (row) =>
-        row.highestCtcLpa === null ? <Muted>—</Muted> : formatLpa(row.highestCtcLpa, false),
+        row.highestCtcLpa === null ? <Muted>{row.ctcWithheld ? "Withheld" : "Not reported"}</Muted> : formatLpa(row.highestCtcLpa, false),
+    },
+    {
+      key: "quoted-ctc",
+      header: "Source CTC quote",
+      numeric: true,
+      width: "120px",
+      render: (row) => row.highestQuotedCtcLpa === null ? <Muted>{row.quoteWithheld ? "Withheld" : "—"}</Muted> : (
+        <span title="Advertised or prospective FTE compensation; excluded from awarded CTC statistics">{formatLpa(row.highestQuotedCtcLpa)}<span className="block text-[11px]" style={{ color: "var(--text-tertiary)" }}>Quoted only</span></span>
+      ),
     },
     {
       key: "cash",
-      header: "Cash yr 1",
+      header: "Known cash yr 1",
       numeric: true,
       width: "96px",
       hideBelow: "lg",
@@ -166,7 +149,7 @@ export default async function CompaniesPage({
           <Muted>—</Muted>
         ) : (
           <span
-            title="Cash actually reaching the student in year one, excluding unvested equity and non-cash benefits"
+            title="Based on disclosed base and cash components; undisclosed allowances are not inferred"
             style={{
               color:
                 row.highestCtcLpa && row.firstYearCashLpa / row.highestCtcLpa < 0.6
@@ -189,16 +172,7 @@ export default async function CompaniesPage({
         row.cgpaCutoff === null ? (
           <Muted>—</Muted>
         ) : (
-          <span
-            title={
-              row.cutoffSource === "students"
-                ? `Announced cutoff, as students reported it${
-                    row.cgpaCutoffLabel ? ` (${row.cgpaCutoffLabel})` : ""
-                  }`
-                : `From the imported records: ${row.cgpaCutoffLabel}`
-            }
-            style={{ color: row.cutoffSource === "imported" ? "var(--text-tertiary)" : undefined }}
-          >
+          <span title="Median announced eligibility cutoff across recorded submissions">
             {row.cgpaCutoff.toFixed(2)}
           </span>
         ),
@@ -214,14 +188,7 @@ export default async function CompaniesPage({
         row.date === null ? (
           <Muted>—</Muted>
         ) : (
-          <span
-            title={
-              row.dateSource === "students"
-                ? "Earliest round or offer date a student reported"
-                : "Pre-placement talk, from the imported records"
-            }
-            style={{ color: row.dateSource === "imported" ? "var(--text-tertiary)" : undefined }}
-          >
+          <span title="Earliest recorded round or offer date">
             {formatDate(row.date)}
           </span>
         ),
@@ -234,7 +201,7 @@ export default async function CompaniesPage({
         title="Companies"
         description={`${formatCount(result.reportedRows)} of ${formatCount(
           result.total,
-        )} rows for the batch of ${batchYear} have an offer on record; the rest are companies that visited without one being recorded. Filters and sorting live in the address bar, so any view here is a link you can send someone.`}
+        )} company/cycle rows for ${batchYear} include student submissions. Historical headcounts use the same offer format and are labelled by source.`}
       />
 
       <FilterBar
@@ -262,13 +229,13 @@ export default async function CompaniesPage({
             label: "Cycle",
             options: result.facets.cycles.map((cycle) => ({
               key: cycle.key,
-              label: CYCLE[cycle.key] ?? cycle.key,
+              label: CYCLE_LABELS[cycle.key] ?? cycle.key,
               count: cycle.count,
             })),
           },
           {
             param: "source",
-            label: "Outcome",
+            label: "Source",
             options: result.facets.sources.map((source) => ({
               key: source.key,
               label: SOURCE[source.key]?.label ?? source.key,

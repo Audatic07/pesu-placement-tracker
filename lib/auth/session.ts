@@ -70,9 +70,7 @@ export async function readSession(): Promise<SessionPayload | null> {
 }
 
 /**
- * Verifies a raw token. Separate from `readSession` because middleware runs on
- * the edge runtime and reads the cookie from the request rather than via
- * `next/headers`.
+ * Verifies a raw token from the proxy, where cookies come from the request.
  */
 export async function verifySessionToken(
   token: string,

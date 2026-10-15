@@ -23,8 +23,10 @@ it has broken here at least once.
 
 ## Privacy
 
-- [ ] No new aggregate bypasses `lib/privacy/gate.ts`, and nothing unwraps a
-      `Suppressible<T>` with a cast.
+- [ ] Placement queries and client payloads exclude recipient names and SRNs,
+      including legacy naming opt-ins. Known figures remain visible for every
+      nonempty cohort; empty inputs return an explicit no-data result, and
+      nothing unwraps a `Suppressible<T>` with a cast.
 - [ ] No new path stores, logs or forwards a PESU password.
 - [ ] No real student data appears in this diff, in a fixture, or in a test.
 

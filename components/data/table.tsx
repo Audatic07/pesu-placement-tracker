@@ -2,20 +2,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
-/**
- * The table.
- *
- * A server component on purpose. Sorting and paging are links, not state, so
- * none of this needs to ship JavaScript: a sorted view is a URL, the back
- * button undoes a sort, and the whole table streams as markup. An earlier
- * version made this a client component, which meant column render functions
- * had to cross the server/client boundary — they cannot, and it failed at
- * runtime rather than at build.
- *
- * Row navigation is an anchor stretched over the row by `.row-link` rather than
- * an onClick handler, so it works without JavaScript, supports middle-click and
- * "open in new tab", and lands in the tab order once per row instead of never.
- */
+/** Sorting and pagination are links. Row links support keyboard focus and opening in a new tab. */
 
 export type Column<T> = {
   key: string;

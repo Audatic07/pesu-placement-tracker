@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import type { OfferCycle, OfferNature } from "@/generated/prisma/enums";
 
 /**
@@ -26,7 +26,8 @@ import type { OfferCycle, OfferNature } from "@/generated/prisma/enums";
  * and it has no request context. Callers pass the client in.
  */
 
-export const STAND_IN_YIELDED = "Yielded to a student's own submission for the same placement.";
+export const STAND_IN_YIELDED =
+  "Yielded to a student's own submission for the same placement.";
 
 type Client = Pick<PrismaClient, "offer">;
 
@@ -43,18 +44,21 @@ export type Person = {
  * null when nothing stood for them. Idempotent: an offer that has already
  * displaced a stand-in displaces no second one.
  */
-export async function yieldStandIn(prisma: Client, person: Person): Promise<string | null> {
+export async function yieldStandIn(
+  prisma: Client,
+  person: Person,
+): Promise<string | null> {
   const already = await prisma.offer.findFirst({
     where: { yieldedToId: person.id },
     select: { id: true },
   });
   if (already) return already.id;
 
-  const standing = {
+  const standing: Prisma.OfferWhereInput = {
     companyId: person.companyId,
     batchId: person.batchId,
     cycle: person.cycle,
-    source: "OFFICIAL_IMPORT" as const,
+    source: { in: ["OFFICIAL_IMPORT", "ADMIN_ENTERED"] },
     studentId: null,
     deletedAt: null,
   };
@@ -79,7 +83,11 @@ export async function yieldStandIn(prisma: Client, person: Person): Promise<stri
 
     const claimed = await prisma.offer.updateMany({
       where: { id: candidate.id, deletedAt: null },
-      data: { deletedAt: new Date(), deletedReason: STAND_IN_YIELDED, yieldedToId: person.id },
+      data: {
+        deletedAt: new Date(),
+        deletedReason: STAND_IN_YIELDED,
+        yieldedToId: person.id,
+      },
     });
     if (claimed.count === 1) return candidate.id;
   }
@@ -92,9 +100,16 @@ export async function yieldStandIn(prisma: Client, person: Person): Promise<stri
  * removed: the person is no longer on record, so the sheet's count is once
  * again the only word on that placement.
  */
-export async function restoreStandInsOf(prisma: Client, offerId: string): Promise<number> {
+export async function restoreStandInsOf(
+  prisma: Client,
+  offerId: string,
+): Promise<number> {
   const result = await prisma.offer.updateMany({
-    where: { yieldedToId: offerId, source: "OFFICIAL_IMPORT" },
+    where: {
+      yieldedToId: offerId,
+      source: { in: ["OFFICIAL_IMPORT", "ADMIN_ENTERED"] },
+      studentId: null,
+    },
     data: { deletedAt: null, deletedReason: null, yieldedToId: null },
   });
   return result.count;
@@ -104,10 +119,24 @@ export async function restoreStandInsOf(prisma: Client, offerId: string): Promis
  * After an import has expanded a batch afresh, every person already on record
  * displaces a stand-in again. Returns how many yielded.
  */
-export async function reconcileStandIns(prisma: Client, batchId: string): Promise<number> {
+export async function reconcileStandIns(
+  prisma: Client,
+  batchId: string,
+): Promise<number> {
   const people = await prisma.offer.findMany({
-    where: { batchId, source: { not: "OFFICIAL_IMPORT" }, deletedAt: null },
-    select: { id: true, companyId: true, batchId: true, cycle: true, nature: true },
+    where: {
+      batchId,
+      studentId: { not: null },
+      source: { not: "OFFICIAL_IMPORT" },
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      companyId: true,
+      batchId: true,
+      cycle: true,
+      nature: true,
+    },
     orderBy: { createdAt: "asc" },
   });
 
