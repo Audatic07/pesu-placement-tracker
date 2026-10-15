@@ -16,6 +16,10 @@ original historical source audit. The source workbooks and backup remain outside
 The other 200 production outcomes are reserved synthetic fixtures, excluded
 from public production analytics. They were preserved during verification.
 
+Of 540 company/season/cycle groups with known awarded CTC, the old five-outcome
+rule hid 263 groups covering 647 outcomes. The current policy exposes those
+recorded amounts while retaining recipient anonymity.
+
 ## Interpretation and cleanup
 
 A missing awarded CTC does not establish a missing source quote. Internship-only
@@ -54,8 +58,13 @@ Lint, TypeScript, unit tests and production build passed. The fresh backup was
 restored into a new, migrated localhost database. Queries confirmed the company
 trend and directory recover the source quote independently from awarded CTC.
 All 7,211 compensation records retained their original CTC, base, stipend and
-notes. Unit tests cover source provenance, unknown/ambiguous amounts,
+notes. The 158 normalized source groups were compared with the original workbook
+cells: 157 match plain numeric cells, and the remaining 8 LPA quote matches a
+cell qualified “Non CS”; its eligibility qualifier remains in the source notes.
+Unit tests cover source provenance, unknown/ambiguous amounts,
 single-outcome visibility, name anonymity, CTC filtering and absolute/annual monetary units.
+Rendered-page regression tests verify that legacy named offers do not fetch or
+render recipient names/SRNs, while recorded CTC and exact CGPA remain visible.
 
 This change needs no migration, imputation or overwrite of production records.
 The normalization is applied when the live app reads existing source notes.
