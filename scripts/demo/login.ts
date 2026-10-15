@@ -10,15 +10,8 @@ import { SignJWT } from "jose";
  *   npm run demo:login                 the first student of the 9998 batch
  *   npm run demo:login -- PES1UG24CS9007
  *
- * Why this exists: every page in this app is behind a PESU login, which means a
- * contributor who does not attend PES University cannot see the thing they are
- * being asked to work on. Reviewing a pull request that changes a chart is not
- * possible from the source alone.
- *
- * It is not a back door. Minting a token requires SESSION_SECRET and direct
- * database access — anyone holding both already controls the deployment — and
- * the script refuses to run against a production build regardless. It never
- * contacts PESU and never touches a password.
+ * Used to test protected submission pages locally. Requires SESSION_SECRET
+ * and direct database access, refuses production mode, and never contacts PESU.
  */
 
 if (process.env.NODE_ENV === "production") {

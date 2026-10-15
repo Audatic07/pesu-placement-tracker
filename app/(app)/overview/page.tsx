@@ -1,7 +1,11 @@
+import { SummaryTable } from "@/components/data/summary-table";
+import { getBatchYears } from "@/lib/analytics/batches";
+import { resolveBatchYear, singleParams, type SearchParams } from "@/lib/query-params";
+import { formatLpa, formatCompactInr, formatCount } from "@/lib/format";
+import { WORK_MODE_LABELS } from "@/lib/offers/labels";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { getCurrentStudent } from "@/lib/auth/rbac";
-import { prisma } from "@/lib/db";
 import {
   getBatchOverview,
   getCtcInflationLeaders,
@@ -17,43 +21,22 @@ import {
   SourceNote,
   Stat,
   StatGrid,
-  StatusBadge,
-  formatCompactInr,
-  formatCount,
-  formatLpa,
 } from "@/components/ui/primitives";
 import { TierBars } from "@/components/data/charts";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Overview · PESU Placement Tracker" };
 
-const WORK_MODE: Record<string, string> = {
-  ONSITE: "In office",
-  HYBRID: "Hybrid",
-  REMOTE: "Remote",
-};
-
-const CYCLE_LABEL: Record<string, string> = {
-  SUMMER_INTERNSHIP: "Summer internship",
-  SIX_MONTH_INTERNSHIP: "Internship",
-  FULL_TIME: "Full time",
-};
-
 export default async function OverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
   const student = await getCurrentStudent();
-  const params = await searchParams;
+  const params = singleParams(await searchParams);
 
-  const batches = await prisma.batch.findMany({ orderBy: { year: "desc" }, select: { year: true } });
-  const requested = Number.parseInt(params["batch"] ?? "", 10);
-  const batchYear =
-    batches.find((batch) => batch.year === requested)?.year ??
-    student?.graduationYear ??
-    batches[0]?.year ??
-    new Date().getFullYear();
+  const years = await getBatchYears();
+  const batchYear = resolveBatchYear(params["batch"], years, student?.graduationYear ?? null);
 
   const q = `?batch=${batchYear}`;
 
@@ -65,25 +48,15 @@ export default async function OverviewPage({
     getCtcInflationLeaders(batchYear, 6),
   ]);
 
-  // Every figure is built from reports, so no reports means nothing to show.
-  // There is no second case any more: a season that arrived by spreadsheet has
-  // reports too — the import expands its headcounts into offer rows — so it
-  // reaches the page below rather than a parallel archive rendering.
   if (!overview || overview.reportCount === 0) {
     return (
       <>
         <PageHeader title="Overview" description={`Batch of ${batchYear}`} />
-        <div className="flex flex-col gap-5 p-6">
+        <div className="p-6">
           <Panel>
-            <EmptyState
-              title="Nobody has recorded an offer for this batch yet"
-              description="Every figure here is built from what students file themselves — packages, CGPA, rounds, cutoffs. The first submission starts it; until then there is nothing honest to show."
-              action={
-                <Button href="/submit" variant="primary">
-                  Add the first offer
-                </Button>
-              }
-            />
+            <EmptyState title="No offers recorded for this batch yet"
+              description="Statistics include historical and student-submitted offers."
+              action={<Button href="/submit" variant="primary">Add the first offer</Button>} />
           </Panel>
         </div>
       </>
@@ -98,7 +71,7 @@ export default async function OverviewPage({
         title="Overview"
         description={`How the batch of ${batchYear} is doing, from ${formatCount(
           overview.reportCount,
-        )} ${overview.reportCount === 1 ? "offer" : "offers"} on record — one row per placement, whether a student filed it here or the batch's own placement sheet recorded it.`}
+        )} offer outcomes: ${formatCount(overview.historicalCount)} from historical sheets and admin records, and ${formatCount(overview.reportCount - overview.historicalCount)} student submissions.`}
         actions={
           <Button href="/submit" variant="primary">
             Add yours
@@ -109,14 +82,14 @@ export default async function OverviewPage({
       <div className="flex flex-col gap-5 p-6">
         <StatGrid>
           <Stat
-            label="Offers reported"
+            label="Offers recorded"
             value={formatCount(overview.reportCount)}
             hint={`${formatCount(overview.converted)} intern → full-time`}
           />
           <Stat
             label="Companies"
             value={formatCount(overview.companiesReported)}
-            hint="At least one report each"
+            hint="At least one offer each"
           />
           <Stat
             label="Median package"
@@ -129,8 +102,8 @@ export default async function OverviewPage({
             value={formatCount(overview.accepted)}
             hint={
               decided > 0
-                ? `${formatCount(overview.declined)} declined, ${formatCount(overview.undecided)} undecided`
-                : "Nobody has said yet"
+                ? `${formatCount(overview.declined)} declined, ${formatCount(overview.unknownAcceptance)} unknown`
+                : `${formatCount(overview.unknownAcceptance)} decisions not recorded`
             }
           />
         </StatGrid>
@@ -154,8 +127,8 @@ export default async function OverviewPage({
           </Panel>
 
           <Panel
-            title="Most reported recruiters"
-            description="Offers on record per company: the people who filed here, or the headcount the batch's sheet published — the same count, collected two different ways."
+            title="Recruiters by offer count"
+            description="Recorded offer outcomes across all submissions. A person may have multiple offers."
             padded={false}
             actions={
               <Link
@@ -167,8 +140,8 @@ export default async function OverviewPage({
               </Link>
             }
           >
-            <MiniTable
-              head={["Company", "Reports", "Median", "Highest"]}
+            <SummaryTable
+              head={["Company", "Offers", "Median", "Highest"]}
               rows={recruiters.map((row) => ({
                 key: row.companySlug,
                 href: `/companies/${row.companySlug}${q}`,
@@ -184,7 +157,7 @@ export default async function OverviewPage({
 
           <Panel
             title="What companies asked for"
-            description="The CGPA bar each company announced, as students heard it."
+            description="Published or reported eligibility cutoffs, separate from students' personal CGPAs."
             padded={false}
           >
             {cutoffs.length === 0 ? (
@@ -193,7 +166,7 @@ export default async function OverviewPage({
                 description="The submission form asks for the bar a company announced. It is the only place this can come from."
               />
             ) : (
-              <MiniTable
+              <SummaryTable
                 head={["Company", "Cutoff", "Lowest in", "Reports"]}
                 rows={cutoffs.slice(0, 8).map((row) => ({
                   key: row.companySlug,
@@ -209,16 +182,15 @@ export default async function OverviewPage({
             )}
             <div className="px-4 pb-3">
               <SourceNote>
-                &ldquo;Lowest in&rdquo; is the lowest CGPA that still got an offer, and appears only
-                once at least three people have reported one — below that it is a person, not a
-                pattern.
+                &ldquo;Lowest in&rdquo; is the lowest reported CGPA that got an offer, including
+                when only one outcome is recorded. Recipient names stay hidden.
               </SourceNote>
             </div>
           </Panel>
 
           <Panel
             title="How much of a headline package is cash"
-            description="Quoted CTC against the money actually reaching a student in year one."
+            description="Headline CTC compared with disclosed base and cash components. Variable pay is a target; unspecified amounts are excluded."
             padded={false}
             actions={
               <Link
@@ -233,8 +205,8 @@ export default async function OverviewPage({
             {inflation.length === 0 ? (
               <EmptyState title="Nobody has broken a package down far enough to compare yet." />
             ) : (
-              <MiniTable
-                head={["Company", "CTC", "Cash yr 1", "×"]}
+              <SummaryTable
+              head={["Company", "CTC", "Known cash yr 1", "×"]}
                 rows={inflation.map((row) => ({
                   key: row.key,
                   href: `/companies/${row.companySlug}${q}`,
@@ -291,7 +263,7 @@ export default async function OverviewPage({
                   {overview.terms.workMode.length === 0
                     ? "—"
                     : overview.terms.workMode
-                        .map((mode) => `${WORK_MODE[mode.key] ?? mode.key} ${mode.count}`)
+                        .map((mode) => `${WORK_MODE_LABELS[mode.key] ?? mode.key} ${mode.count}`)
                         .join(" · ")}
                 </Term>
                 <Term label="Carry a bond">
@@ -310,6 +282,7 @@ export default async function OverviewPage({
             )}
           </Panel>
         </div>
+
       </div>
     </>
   );
@@ -321,53 +294,5 @@ function Term({ label, children }: { label: string; children: React.ReactNode })
       <dt style={{ color: "var(--text-tertiary)" }}>{label}</dt>
       <dd className="text-right">{children}</dd>
     </div>
-  );
-}
-
-function MiniTable({
-  head,
-  rows,
-}: {
-  head: string[];
-  rows: Array<{ key: string; href?: string; cells: React.ReactNode[] }>;
-}) {
-  return (
-    <table className="w-full border-collapse text-[13px]">
-      <thead>
-        <tr style={{ borderBottom: "1px solid var(--line)" }}>
-          {head.map((heading, index) => (
-            <th
-              key={heading}
-              className={`h-8 px-4 text-[11px] font-medium uppercase tracking-[0.05em] ${
-                index === 0 ? "text-left" : "text-right"
-              }`}
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              {heading}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.key} style={{ borderBottom: "1px solid var(--line)" }}>
-            {row.cells.map((cell, index) => (
-              <td
-                key={index}
-                className={`h-[34px] px-4 ${index === 0 ? "text-left" : "tnum text-right"}`}
-              >
-                {index === 0 && row.href ? (
-                  <Link href={row.href} className="hover:underline">
-                    {cell}
-                  </Link>
-                ) : (
-                  cell
-                )}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

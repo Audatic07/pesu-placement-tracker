@@ -1,3 +1,4 @@
+import { positiveInteger, singleParams, type SearchParams } from "@/lib/query-params";
 import { requireRole } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { EmptyState, PageHeader, StatusBadge, Tag, type Tone } from "@/components/ui/primitives";
@@ -30,11 +31,11 @@ const ACTION_TONE: Record<string, Tone> = {
 export default async function AuditPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
   await requireRole("ADMIN");
-  const params = await searchParams;
-  const page = Math.max(1, Number.parseInt(params["page"] ?? "1", 10) || 1);
+  const params = singleParams(await searchParams);
+  const page = positiveInteger(params["page"]);
   const pageSize = 100;
 
   const [entries, total] = await Promise.all([

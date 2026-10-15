@@ -2,8 +2,9 @@
 
 ## What it is
 
-A placement-statistics app for PES University students, authenticated with their
-own PESU Academy credentials. It replaces a set of student-maintained Google
+A public placement-statistics app for PES University students. PESU Academy
+authentication is required for submissions and personal offer management.
+It replaces a set of student-maintained Google
 Sheets that had become the de-facto record of who hired whom, for how much, and
 what the process was like.
 
@@ -14,12 +15,12 @@ from those reports. Every figure the old spreadsheets buried — in a cell colou
 a merged range, or a note column — is a field a student fills in here, which is
 what lets it stay true after the spreadsheets stop being maintained.
 
-The old sheets were student-maintained too, so a sheet row and an app submission
-are the same kind of record collected two different ways. Each finished season
-is imported as offer rows in the shape a submission produces — one row per
-placement, with no owning student because the sheet never said who — and reads
-through exactly the same analytics as a live batch. A batch nobody has reported
-on shows that plainly rather than borrowing a number from another year.
+Historical sheets are reviewed into ordinary anonymous offer submissions. Each
+stated headcount produces that many outcome records, using the same fields and
+analytics as future student submissions. Provenance stays in source notes;
+missing identities and unknown amounts are not invented. Batch figures count
+offer outcomes, since historical sheets cannot identify unique students across
+multiple employers.
 
 ## Who uses it
 
@@ -28,8 +29,9 @@ from roughly August to February. They are anxious, comparing themselves to peers
 and making real decisions (accept this offer or hold out for a better tier) on
 incomplete information. A minority are juniors planning a year ahead.
 
-**One admin** (the project owner) resolving reports of suspicious data, with room
-for more moderators later.
+**Rotating student administrators** maintaining historical outcomes, reviewing
+imports, correcting records and resolving reports. Owners manage access and
+handover; administrative entry is independent of student quotas.
 
 ## What the visitor is here to do
 
@@ -45,21 +47,12 @@ there.
   over four to five years, and SAP at 26 LPA of which 8 lakhs is free meals and
   transport. The app separates headline CTC, first-year cash, recurring cash, and
   an estimated take-home, and shows the gap between them.
-- **One kind of record, collected two ways.** Every batch figure counts one row
-  per placement, whether a student filed it here or the batch's own sheet
-  recorded it. What the sheet cannot say is identity — IBM placed 88 students,
-  but not who — so those rows carry no student. Each stands in for a student
-  who has not filed, and yields to that student's own submission when it
-  arrives, so a person is counted once whichever way their placement reached
-  the table. They count in every figure a live row counts in, but wherever the
-  app reasons about people they are one observation: eighty-eight copies of
-  one published package never flag a student's report as an outlier and never
-  corroborate one.
-- **Anonymity is structural.** Offers are anonymous by default and exact CGPA
-  is banded in public views. Packages are public, anonymous records — a
-  company's highest package is an offer anyone can open — so package figures
-  are shown at any cohort size. No CGPA statistic is shown for a cohort below
-  five records.
+- **One submission model.** Historical outcomes and student submissions share
+  batch totals, distributions, company trends and the timeline. Source labels
+  explain provenance without separating historical data from analysis.
+- **Recipient names stay private.** Placement views hide names and SRNs,
+  including legacy naming opt-ins. Recorded placement figures and exact CGPA
+  are available even for a single outcome; unknown values remain unknown.
 - **Everything is batch-scoped configuration.** Tier boundaries, submission
   quotas, tax slabs. The 2026 sheet's own guidelines already note a tier that
   applied "to 2025 batch only".
@@ -100,8 +93,14 @@ high but never crowded; colour is restrained and carries meaning only.
 | Company profile | Operate | Year-over-year history for one recruiter. |
 | Offer detail | Read | Compensation breakdown and the process notes. |
 | Submission wizard | Operate | Quota-bound, one offer at a time. |
-| Admin console | Operate | Report queue and audit trail. |
+| Admin console | Operate | Outcomes, imports, policies, diagnostics, reports, backups and owner access. |
 | Login | Operate | Single purpose; already built. |
 
 Phone and desktop are equally important and each is designed as a first-class
 layout rather than one adapting to the other.
+
+Submission drafts stay on the device and validation uses the same schema on
+the client and server. A CGPA outlook shows announced eligibility and recorded
+peer outcomes for every nonempty cohort, without recipient names or SRNs.
+A historical headcount entry can yield to the matching
+student submission and return if that submission is removed.

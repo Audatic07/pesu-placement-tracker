@@ -1,14 +1,8 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 
-/**
- * Form fields.
- *
- * One control style, one label style, one error style. A dense tool form should
- * look like the tables around it: hairline borders, 30px controls, labels above
- * rather than floating.
- */
+/** Shared labelled form controls. */
 
 const CONTROL =
   "h-[30px] w-full rounded-[var(--radius-control)] px-2 text-[13px] outline-none transition-shadow";
@@ -49,11 +43,18 @@ export function Field({
       </label>
       {children}
       {error ? (
-        <p role="alert" className="text-[12px]" style={{ color: "var(--critical)" }}>
+        <p
+          role="alert"
+          className="text-[12px]"
+          style={{ color: "var(--critical)" }}
+        >
           {error}
         </p>
       ) : hint ? (
-        <p className="text-[12px] leading-snug" style={{ color: "var(--text-tertiary)" }}>
+        <p
+          className="text-[12px] leading-snug"
+          style={{ color: "var(--text-tertiary)" }}
+        >
           {hint}
         </p>
       ) : null}
@@ -75,11 +76,16 @@ export function TextInput({
   hint?: ReactNode;
   error?: string;
   required?: boolean;
-  type?: string;
-} & Record<string, unknown>) {
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "name">) {
   const id = useId();
   return (
-    <Field label={label} hint={hint} error={error} required={required} htmlFor={id}>
+    <Field
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      htmlFor={id}
+    >
       <input
         id={id}
         name={name}
@@ -112,7 +118,13 @@ export function Select({
 }) {
   const id = useId();
   return (
-    <Field label={label} hint={hint} error={error} required={required} htmlFor={id}>
+    <Field
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      htmlFor={id}
+    >
       <select
         id={id}
         name={name}
@@ -122,7 +134,11 @@ export function Select({
         style={controlStyle(Boolean(error))}
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>
+          <option
+            key={option.value}
+            value={option.value}
+            disabled={option.disabled}
+          >
             {option.label}
           </option>
         ))}
@@ -138,6 +154,7 @@ export function TextArea({
   error,
   rows = 4,
   placeholder,
+  defaultValue,
 }: {
   label: string;
   name: string;
@@ -145,6 +162,7 @@ export function TextArea({
   error?: string;
   rows?: number;
   placeholder?: string;
+  defaultValue?: string;
 }) {
   const id = useId();
   return (
@@ -154,6 +172,7 @@ export function TextArea({
         name={name}
         rows={rows}
         placeholder={placeholder}
+        defaultValue={defaultValue}
         className="w-full rounded-[var(--radius-control)] px-2 py-1.5 text-[13px] leading-relaxed outline-none"
         style={controlStyle(Boolean(error))}
       />
@@ -185,7 +204,10 @@ export function Checkbox({
       <label htmlFor={id} className="text-[13px] leading-snug">
         {label}
         {hint ? (
-          <span className="mt-0.5 block text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+          <span
+            className="mt-0.5 block text-[12px]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
             {hint}
           </span>
         ) : null}
@@ -217,10 +239,16 @@ export function FormSection({
       className="rounded-[var(--radius-panel)] border"
       style={{ borderColor: "var(--line)", background: "var(--panel)" }}
     >
-      <header className="border-b px-4 py-3" style={{ borderColor: "var(--line)" }}>
+      <header
+        className="border-b px-4 py-3"
+        style={{ borderColor: "var(--line)" }}
+      >
         <h2 className="text-[13px] font-medium">{title}</h2>
         {description ? (
-          <p className="mt-0.5 max-w-[70ch] text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+          <p
+            className="mt-0.5 max-w-[70ch] text-[12px]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
             {description}
           </p>
         ) : null}

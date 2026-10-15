@@ -49,12 +49,12 @@ export type ExpandArgs = {
  * Reads the tax regime once per import rather than once per offer. The figures
  * are identical for every row in a run, and `deriveCompensation` is pure.
  *
- * This is `lib/comp/recompute`'s loader, not a copy of it. The import derives
+ * This is the shared `lib/comp/regime` loader. The import derives
  * compensation for rows that the app will show next to student submissions, so
  * reading the slab table differently here would put two derivations of the same
  * number in the same table.
  */
-export { loadRegime as loadTaxRegimeFor } from "@/lib/comp/recompute";
+export { loadTaxRegime as loadTaxRegimeFor } from "@/lib/comp/regime";
 
 /**
  * Creates one offer row per placed student for a single drive role.

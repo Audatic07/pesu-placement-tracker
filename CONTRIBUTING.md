@@ -21,6 +21,7 @@ it refuses to run against a production build.
 ## Before you open a pull request
 
 ```bash
+npm run lint
 npm run typecheck
 npm test
 npm run build
@@ -30,9 +31,13 @@ If your change touches submission, analytics or moderation, also run:
 
 ```bash
 npm run demo:9998 -- --reset
+npm run admin:verify
 ```
 
-It prints a pass/fail line per rule and exits non-zero if any check fails. It is
+The admin harness requires a disposable localhost database and checks atomic
+imports, duplicate prevention, conflicts, removal, recovery and role enforcement.
+
+The demo prints a pass/fail line per rule and exits non-zero if any check fails. It is
 the closest thing this project has to an integration suite, and it catches
 things unit tests structurally cannot — a quota that stops biting at volume, an
 aggregate that starts counting imported drives, a company that quietly splits
@@ -40,12 +45,12 @@ into two rows because someone typed it in lower case.
 
 ## The rules that are not negotiable
 
-**No CGPA statistic bypasses the privacy gate.** Anything that sets a CGPA
-beside an outcome goes through `lib/privacy/gate.ts`. `Suppressible<T>` cannot
-be read without handling the suppressed case, and that is deliberate — do not
-unwrap it with a cast. Package figures are not gated: each offer is already a
-public, anonymous record, so a median or maximum over them reveals nothing its
-offer pages do not. Exact CGPA never appears in a public view; show the band.
+**Placement views never show recipient names or SRNs.** This includes legacy
+offers marked NAMED. Known placement figures are shown even for one outcome;
+empty inputs still need an explicit no-data result. Keep recipient identity out
+of placement queries and client payloads. Account and admin identity is separate.
+`lib/privacy/gate.ts` handles empty cohorts, not a five-record privacy threshold.
+Handle both cases of `Suppressible<T>` rather than unwrapping it with a cast.
 
 **No password is stored, logged, or held longer than the request.** It passes
 through the server once, to pesu-auth, and is never written anywhere. Check

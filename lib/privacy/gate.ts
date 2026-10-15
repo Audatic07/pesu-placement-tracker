@@ -1,27 +1,16 @@
 /**
- * The privacy gate.
- *
- * A "hide my name" checkbox does not make a record anonymous. If a student
- * filters to branch = EEE, company = Netradyne, and one offer comes back, they
- * have learned that person's CGPA and package regardless of whose name is on
- * it — everyone in EEE knows who got the Netradyne offer.
- *
- * What this gate protects is CGPA set beside an outcome. Packages are not
- * gated: every offer is a public, anonymous record, so a median or maximum
- * over packages tells nobody more than the offer pages already do. A CGPA
- * statistic is different — it is the figure a classmate could not otherwise
- * see — so no CGPA aggregate over a cohort smaller than K is ever returned.
- *
- * CGPA statistics are produced ONLY through this module. The type system
- * enforces it — `Suppressible<T>` cannot be read without handling the
- * suppressed case, so a caller cannot forget.
+ * Placement figures, including exact CGPA, are visible for every nonempty
+ * cohort. The default gate represents missing data, not a privacy threshold.
+ * Recipient names and SRNs stay out of placement views and their payloads;
+ * `Suppressible<T>` keeps callers from treating an empty cohort as a value.
  */
 
-export const DEFAULT_MIN_COHORT_SIZE = 5;
+export const DEFAULT_MIN_COHORT_SIZE = 1;
 
 export function minCohortSize(): number {
-  const configured = Number.parseInt(process.env.PRIVACY_MIN_COHORT_SIZE ?? "", 10);
-  return Number.isFinite(configured) && configured >= 2 ? configured : DEFAULT_MIN_COHORT_SIZE;
+  // The former environment setting must not keep old deployments suppressing
+  // known values after the name-only anonymity policy was adopted.
+  return DEFAULT_MIN_COHORT_SIZE;
 }
 
 export type Suppressed = {
@@ -49,8 +38,7 @@ export function suppress(cohortSize: number, minimum = minCohortSize()): Suppres
       cohortSize === 0
         ? "No records match this filter."
         : `Only ${cohortSize} record${cohortSize === 1 ? "" : "s"} match this filter. ` +
-          `At least ${minimum} are needed before figures are shown, so that individual ` +
-          `students cannot be identified from them.`,
+          `At least ${minimum} are needed before figures are shown.`,
   };
 }
 
@@ -59,9 +47,8 @@ export function reveal<T>(value: T, cohortSize: number): Revealed<T> {
 }
 
 /**
- * Wraps a computed statistic, returning it only if the cohort is large enough.
- * `compute` is not called when the cohort is too small, so an expensive
- * aggregate is not paid for just to be thrown away.
+ * Empty cohorts have no statistic. Every nonempty cohort is shown by default.
+ * An explicit minimum remains available for calculations requiring a sample.
  */
 export function gate<T>(
   cohortSize: number,
@@ -72,17 +59,11 @@ export function gate<T>(
   return reveal(compute(), cohortSize);
 }
 
-/** Reads a gated value, or a fallback. For rendering, never for further maths. */
-export function valueOr<T, F>(gated: Suppressible<T>, fallback: F): T | F {
-  return gated.suppressed ? fallback : gated.value;
-}
-
 /**
  * CGPA as a band, for public display.
  *
- * An exact CGPA is close to a fingerprint — combined with branch and company it
- * identifies a person even inside a large cohort. Bands of 0.25 keep the figure
- * useful for "what did people who got this offer look like" without that.
+ * Retained for aggregate chart grouping and compatibility with stored records.
+ * Offer detail can show the exact reported figure under the current policy.
  */
 export function cgpaBand(cgpa: number | null | undefined, width = 0.25): string | null {
   if (cgpa === null || cgpa === undefined || !Number.isFinite(cgpa)) return null;
@@ -93,21 +74,13 @@ export function cgpaBand(cgpa: number | null | undefined, width = 0.25): string 
 }
 
 /**
- * Whether a name may be shown.
- *
- * Requires an explicit opt-in AND a record that is not under dispute — an
- * offer someone has credibly reported should not carry a name while it is
- * being decided.
+ * Recipient names are never displayed in placement views, including legacy
+ * offers with the old NAMED flag. Account/administration identity is separate.
  */
-export function canShowName(offer: {
+export function canShowName(_offer: {
   nameVisibility: string;
   verification: string;
   deletedAt: Date | null;
 }): boolean {
-  return (
-    offer.nameVisibility === "NAMED" &&
-    offer.verification !== "DISPUTED" &&
-    offer.verification !== "REMOVED" &&
-    offer.deletedAt === null
-  );
+  return false;
 }

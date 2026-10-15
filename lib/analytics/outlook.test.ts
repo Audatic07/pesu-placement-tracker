@@ -22,6 +22,13 @@ function point(cgpa: number, ctcLpa: number, tierKey: string | null = "TIER_2"):
 }
 
 describe("computeOutlook", () => {
+  it("shows a single peer under the current policy without publishing a name", () => {
+    const result = computeOutlook(8, [], [point(8, 30)], TIERS).peers;
+    expect(result.suppressed).toBe(false);
+    if (result.suppressed) throw new Error("Expected known placement figures");
+    expect(result.value).toMatchObject({ offers: 1, medianCtc: 30 });
+    expect(result.value).not.toHaveProperty("name");
+  });
   it("splits announced bars into cleared, within reach and out of reach", () => {
     const bars = [bar("A", 7), bar("B", 8), bar("C", 8.4), bar("D", 8.5), bar("E", 9)];
 
@@ -61,10 +68,9 @@ describe("computeOutlook", () => {
 
     expect(outlook.peerRange).toEqual({ from: 7.75, to: 8.25 });
     expect(outlook.peers.suppressed).toBe(false);
-    if (!outlook.peers.suppressed) {
-      expect(outlook.peers.value.offers).toBe(5);
-      expect(outlook.peers.value.medianCtc).toBe(11);
-    }
+    if (outlook.peers.suppressed) throw new Error("Expected a revealed cohort");
+    expect(outlook.peers.value.offers).toBe(5);
+    expect(outlook.peers.value.medianCtc).toBe(11);
   });
 
   it("withholds the peer figures below the minimum cohort, counts included", () => {
@@ -73,10 +79,9 @@ describe("computeOutlook", () => {
     const outlook = computeOutlook(8, [], points, TIERS, 5);
 
     expect(outlook.peers.suppressed).toBe(true);
-    if (outlook.peers.suppressed) {
-      expect(outlook.peers.cohortSize).toBe(4);
-      expect(outlook.peers.minimumRequired).toBe(5);
-    }
+    if (!outlook.peers.suppressed) throw new Error("Expected a withheld cohort");
+    expect(outlook.peers.cohortSize).toBe(4);
+    expect(outlook.peers.minimumRequired).toBe(5);
   });
 
   it("splits a revealed cohort by tier as counts, never as packages", () => {
@@ -91,15 +96,14 @@ describe("computeOutlook", () => {
     const outlook = computeOutlook(8, [], points, TIERS, 5);
 
     expect(outlook.peers.suppressed).toBe(false);
-    if (!outlook.peers.suppressed) {
-      expect(outlook.peers.value.byTier).toEqual([
-        { tierKey: "TIER_1", label: "Tier 1", offers: 1 },
-        { tierKey: "TIER_2", label: "Tier 2", offers: 2 },
-        { tierKey: "TIER_3", label: "Tier 3", offers: 1 },
-      ]);
-      expect(outlook.peers.value.untiered).toBe(1);
-      expect(Object.keys(outlook.peers.value.byTier[0]!)).not.toContain("medianCtc");
-    }
+    if (outlook.peers.suppressed) throw new Error("Expected a revealed cohort");
+    expect(outlook.peers.value.byTier).toEqual([
+      { tierKey: "TIER_1", label: "Tier 1", offers: 1 },
+      { tierKey: "TIER_2", label: "Tier 2", offers: 2 },
+      { tierKey: "TIER_3", label: "Tier 3", offers: 1 },
+    ]);
+    expect(outlook.peers.value.untiered).toBe(1);
+    expect(Object.keys(outlook.peers.value.byTier[0]!)).not.toContain("medianCtc");
   });
 
   it("keeps the peer window inside the scale", () => {

@@ -30,7 +30,7 @@ export const RoundInput = z.object({
     "OTHER",
   ]),
   mode: z.enum(["ONLINE", "IN_PERSON", "HYBRID", "UNKNOWN"]).default("UNKNOWN"),
-  heldOn: z.string().optional(),
+  heldOn: z.iso.date().optional(),
   platform: z.string().max(80).optional(),
   topics: z.string().max(300).optional(),
   difficulty: z.coerce.number().int().min(1).max(5).optional(),
@@ -56,7 +56,7 @@ export const ComponentInput = z.object({
     .number()
     .min(0, "An amount cannot be negative.")
     .max(1000, "That is not an amount in lakhs per annum."),
-  isOneTime: z.coerce.boolean().default(false),
+  isOneTime: z.boolean().default(false),
   note: z.string().max(200).optional(),
 });
 
@@ -147,15 +147,15 @@ export const OfferInput = z.object({
     .optional(),
   eligibleBranches: z.array(z.string().max(12)).max(30).default([]),
 
-  offerDate: z.string().optional(),
+  offerDate: z.iso.date().optional(),
   acceptanceStatus: z.enum(["ACCEPTED", "DECLINED", "PENDING", "REVOKED"]).default("PENDING"),
 
   processNotes: z.string().max(8000).optional(),
   preparationResources: z.string().max(4000).optional(),
   difficultyRating: z.coerce.number().int().min(1).max(5).optional(),
 
-  /** Default anonymous. Showing a name is an explicit, deliberate act. */
-  showName: z.coerce.boolean().default(false),
+  /** Legacy input accepted for older clients; submission always stays anonymous. */
+  showName: z.boolean().default(false),
 
   rounds: z.array(RoundInput).max(12).default([]),
 }).superRefine((values, ctx) => {
@@ -178,8 +178,7 @@ export function numberOrUndefined(value: FormDataEntryValue | null): number | un
   if (value === null) return undefined;
   const text = String(value).trim();
   if (!text) return undefined;
-  const parsed = Number.parseFloat(text);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number(text);
 }
 
 /**
@@ -196,13 +195,13 @@ export function numberOrUndefined(value: FormDataEntryValue | null): number | un
 export function parseOfferForm(formData: FormData) {
   const componentKinds = formData.getAll("componentKind").map(String);
   const componentAmounts = formData.getAll("componentAmount").map(String);
-  const componentOneTime = formData.getAll("componentOneTime").map(String);
+  const componentOneTime = new Set(formData.getAll("componentOneTime").map(String));
 
   const components = componentKinds
     .map((kind, index) => ({
       kind,
       amountLpa: componentAmounts[index] ?? "",
-      isOneTime: componentOneTime[index] === "true",
+      isOneTime: componentOneTime.has(String(index)),
     }))
     .filter((component) => component.kind && component.amountLpa !== "");
 

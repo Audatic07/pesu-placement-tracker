@@ -124,11 +124,14 @@ export async function provisionStudent(
   const programId = await resolveProgramId(profile.program, parsedSrn?.level);
 
   const campusId = profile.campusCode
-    ? ((await prisma.campus.findUnique({ where: { code: profile.campusCode } }))?.id ??
-      null)
+    ? ((await prisma.campus.findUnique({ where: { code: profile.campusCode } }))
+        ?.id ?? null)
     : parsedSrn
-      ? ((await prisma.campus.findUnique({ where: { code: parsedSrn.campusCode } }))
-          ?.id ?? null)
+      ? ((
+          await prisma.campus.findUnique({
+            where: { code: parsedSrn.campusCode },
+          })
+        )?.id ?? null)
       : null;
 
   const program = programId
@@ -186,31 +189,41 @@ export async function provisionStudent(
  * Promotes the bootstrap admin.
  *
  * The very first administrator cannot be granted by an existing administrator,
- * so their SRN is named in the environment and promoted the first time they
- * log in. Once promoted, the variable can be removed — the role lives in the
- * database, and further admins are granted through the console.
+ * so their verified SRN is named in the host environment. Keeping it configured
+ * provides an operator-controlled recovery path, including from suspension.
+ * It never authenticates a user: PESU verification happens first.
  */
 export async function applyBootstrapAdmin(
   student: StudentModel,
 ): Promise<StudentModel> {
   const configured = process.env.SUPER_ADMIN_SRN?.trim().toUpperCase();
   if (!configured || configured !== student.srn) return student;
-  if (student.role === "SUPER_ADMIN") return student;
-
-  const promoted = await prisma.student.update({
-    where: { id: student.id },
-    data: { role: "SUPER_ADMIN" },
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Student" WHERE id = ${student.id} FOR UPDATE`;
+    const current = await tx.student.findUniqueOrThrow({
+      where: { id: student.id },
+    });
+    if (
+      current.srn !== configured ||
+      (current.role === "SUPER_ADMIN" && !current.isSuspended)
+    )
+      return current;
+    const promoted = await tx.student.update({
+      where: { id: student.id },
+      data: { role: "SUPER_ADMIN", isSuspended: false, suspendedReason: null },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: student.id,
+        action: "ROLE_GRANT",
+        entityType: "Student",
+        entityId: student.id,
+        before: { role: current.role, isSuspended: current.isSuspended },
+        after: { role: "SUPER_ADMIN", isSuspended: false },
+        summary:
+          "Deployment recovery owner regained access after verified PESU login.",
+      },
+    });
+    return promoted;
   });
-
-  await recordAudit({
-    actorId: student.id,
-    action: "ROLE_GRANT",
-    entityType: "Student",
-    entityId: student.id,
-    before: { role: student.role },
-    after: { role: "SUPER_ADMIN" },
-    summary: `Bootstrap promotion from SUPER_ADMIN_SRN for ${student.srn}.`,
-  });
-
-  return promoted;
 }

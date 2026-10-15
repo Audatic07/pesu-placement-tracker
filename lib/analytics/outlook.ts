@@ -133,7 +133,7 @@ export function computeOutlook(
 /** A CGPA typed into a URL: two decimals, inside the scale, or nothing. */
 export function parseCgpaParam(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === "") return null;
-  const value = Number.parseFloat(raw);
+  const value = Number(raw);
   if (!Number.isFinite(value) || value < 0 || value > 10) return null;
   return round2(value);
 }

@@ -1,4 +1,4 @@
-import type { OfferInputValues } from "@/lib/offers/submit";
+import type { OfferInputValues } from "@/lib/offers/schema";
 
 /**
  * The dummy 9998 cohort — 200 submissions from 170 students.

@@ -1,19 +1,19 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../../generated/prisma/client.js";
+import { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { BATCH_YEAR, REPORTS, STUDENTS, SUBMISSIONS } from "./dataset";
-import { createOffer, parseOfferForm, type OfferInputValues } from "@/lib/offers/submit";
+import { createOffer } from "@/lib/offers/submit";
+import { parseOfferForm, type OfferInputValues } from "@/lib/offers/schema";
 import { provisionStudent } from "@/lib/auth/provision";
 import { fileReport, resolveReports, restoreOffer } from "@/lib/moderation/reports";
-import { normalizeCompanyName } from "@/lib/companies/name";
 import { expandRoleIntoOffers } from "../import/lib/offers";
 import type { ImportedRole } from "../import/sheets/types";
+import { normalizeCompanyName } from "@/lib/companies/name";
 import { getQuotaState } from "@/lib/policy/quota";
 import {
   getAnnouncedCutoffs,
   getBatchOverview,
   getBranchBreakdown,
-  getCgpaOutlook,
   getCgpaVersusPackage,
   getCtcInflationLeaders,
   getSeasonProgress,
@@ -74,10 +74,8 @@ function heading(text: string) {
 /**
  * Mirrors the field names in app/(app)/submit/offer-form.tsx exactly.
  *
- * Repeated inputs append rather than replace, numbers go over the wire as
- * strings, and an unchecked checkbox is absent entirely rather than "false" —
- * all three are the actual HTML form semantics, and all three are places the
- * decoder can go wrong.
+ * Repeated inputs append, numbers travel as strings, and checked one-time
+ * components carry their row index so unchecked boxes preserve alignment.
  */
 function toFormData(values: Omit<OfferInputValues, "batchYear">, batchYear: number): FormData {
   const form = new FormData();
@@ -97,10 +95,10 @@ function toFormData(values: Omit<OfferInputValues, "batchYear">, batchYear: numb
   set("baseLpa", values.baseLpa);
   set("stipendPerMonthInr", values.stipendPerMonthInr);
 
-  for (const component of values.components) {
+  for (const [index, component] of values.components.entries()) {
     form.append("componentKind", component.kind);
     form.append("componentAmount", String(component.amountLpa));
-    form.append("componentOneTime", component.isOneTime ? "true" : "false");
+    if (component.isOneTime) form.append("componentOneTime", String(index));
   }
 
   set("cgpa", values.cgpa);
@@ -331,7 +329,7 @@ async function main() {
 
   // ----------------------------------------------------------------- checks
   heading("Checks");
-  await verify(companiesBefore, accepted, flagged, reportsFiled, offerIds);
+  await verify(companiesBefore, accepted, flagged, reportsFiled);
 
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
@@ -346,7 +344,6 @@ async function verify(
   accepted: number,
   flagged: number,
   reportsFiled: number,
-  offerIds: string[],
 ) {
   const batch = await prisma.batch.findUniqueOrThrow({ where: { year: BATCH_YEAR } });
 
@@ -379,6 +376,28 @@ async function verify(
     "every student filed at least once",
     distinctStudents.length === STUDENTS.length,
     `${distinctStudents.length} of ${STUDENTS.length} students have an offer on file`,
+  );
+
+  const testStudent = await prisma.student.findFirstOrThrow({ where: { graduationYear: BATCH_YEAR } });
+  const missingStudentId = crypto.randomUUID();
+  const packagesBefore = await prisma.compensationPackage.count();
+  let foreignKeyRejected = false;
+  try {
+    await createOffer(
+      { ...testStudent, id: missingStudentId },
+      { ...SUBMISSIONS[0]!.offer, batchYear: BATCH_YEAR },
+    );
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2003") throw error;
+    foreignKeyRejected = true;
+  } finally {
+    await prisma.rateLimitBucket.deleteMany({ where: { key: `submit:${missingStudentId}` } });
+  }
+  const packagesAfter = await prisma.compensationPackage.count();
+  check(
+    "a failed offer rolls back its compensation package",
+    foreignKeyRejected && packagesBefore === packagesAfter,
+    `${packagesBefore} packages before, ${packagesAfter} after the rejected write`,
   );
 
   // --- company identity ---------------------------------------------------
@@ -452,9 +471,9 @@ async function verify(
     where: { batchId: batch.id, nameVisibility: "NAMED" },
   });
   check(
-    "anonymity is the default",
-    named < accepted / 2,
-    `${accepted - named} anonymous, ${named} opted in to being named`,
+    "all submitted offers remain anonymous, including legacy name opt-ins",
+    named === 0,
+    `${accepted - named} anonymous, ${named} named`,
   );
 
   const unbanded = await prisma.offer.count({
@@ -475,23 +494,6 @@ async function verify(
       fit !== null && fit.rSquared > 0.05 && fit.rSquared < 0.95,
       fit ? `r² = ${fit.rSquared.toFixed(3)}, slope ${fit.slope.toFixed(2)} LPA per point` : "no fit",
     );
-
-    // The one-CGPA reading at the batch's median CGPA: enough peers there to
-    // clear the gate, and the announced bars split around it rather than all
-    // landing on one side.
-    const sortedCgpa = cgpa.value.map((point) => point.cgpa).sort((a, b) => a - b);
-    const medianCgpa = sortedCgpa[Math.floor(sortedCgpa.length / 2)]!;
-    const outlook = await getCgpaOutlook(BATCH_YEAR, medianCgpa);
-    check(
-      `the outlook at the median CGPA (${medianCgpa.toFixed(2)}) is released and splits the bars`,
-      !outlook.peers.suppressed &&
-        outlook.eligibility.cleared > 0 &&
-        outlook.eligibility.cleared < outlook.eligibility.withKnownBar,
-      outlook.peers.suppressed
-        ? `withheld: ${outlook.peers.reason}`
-        : `${outlook.peers.value.offers} peers, median ${outlook.peers.value.medianCtc} LPA · ` +
-          `clears ${outlook.eligibility.cleared} of ${outlook.eligibility.withKnownBar} bars`,
-    );
   }
 
   // --- derived compensation ------------------------------------------------
@@ -511,8 +513,8 @@ async function verify(
     `${withCash} of ${withCtc} packages carry an in-hand figure`,
   );
   check(
-    "the headline-versus-cash table found packages to separate",
-    inflation.length > 0 && inflation.some((row) => (row.ratio ?? 1) > 1.2),
+    "headline-versus-cash comparison returns one aggregate per company",
+    inflation.length > 0 && new Set(inflation.map((row) => row.companySlug)).size === inflation.length,
     inflation
       .slice(0, 3)
       .map((row) => `${row.companyName} ${row.ratio?.toFixed(2)}×`)
@@ -731,10 +733,10 @@ async function verify(
   }
 
   // --- stand-ins ------------------------------------------------------------
-  // A sheet's headcount stands in for the people who have not filed. Once one
+  // A sheet's headcount stands in for the people who have not recorded. Once one
   // of them files, the placement has to be counted exactly once: the stand-in
   // yields to the submission, and comes back if that submission is removed.
-  // Staged here with a two-person headcount for a company nobody has filed at,
+  // Staged here with a two-person headcount for a company nobody has recorded at,
   // exactly as the import would write it.
   const standIns = await (async () => {
     const name = "Harrowgate Systems";
@@ -824,18 +826,18 @@ async function verify(
     if (!parsed.success) return null;
 
     const before = { standing: await standing(), shown: await shown() };
-    const filed = await createOffer(student, parsed.data);
-    if (!filed.ok) return { expanded, before, filed, after: null, removed: null, restored: null };
+    const recorded = await createOffer(student, parsed.data);
+    if (!recorded.ok) return { expanded, before, recorded, after: null, removed: null, restored: null };
     const after = { standing: await standing(), shown: await shown() };
 
     // The role gate for moderation lives in the admin action, not here; the
     // library function records who acted, and for this run that is a student.
-    await resolveReports(student, filed.offerId, "REMOVE", "Staged removal for the stand-in check.");
+    await resolveReports(student, recorded.offerId, "REMOVE", "Staged removal for the stand-in check.");
     const removed = { standing: await standing(), shown: await shown() };
-    await restoreOffer(student, filed.offerId);
+    await restoreOffer(student, recorded.offerId);
     const restored = { standing: await standing(), shown: await shown() };
 
-    return { expanded, before, filed, after, removed, restored };
+    return { expanded, before, recorded, after, removed, restored };
   })();
   if (standIns) {
     check(
@@ -845,10 +847,10 @@ async function verify(
     );
     check(
       "a student's own submission displaces one stand-in, and the company still shows two",
-      standIns.filed.ok && standIns.after?.standing === 1 && standIns.after.shown === 2,
-      standIns.filed.ok
+      standIns.recorded.ok && standIns.after?.standing === 1 && standIns.after.shown === 2,
+      standIns.recorded.ok
         ? `${standIns.after?.standing} standing, ${standIns.after?.shown} shown`
-        : `the submission was refused: ${standIns.filed.error}`,
+        : `the submission was refused: ${standIns.recorded.error}`,
     );
     check(
       "removing that submission brings the stand-in back",
@@ -862,19 +864,13 @@ async function verify(
     );
   }
 
-  // --- an imported season reads like a live one ----------------------------
-  const importedYear = 2026;
-  const [importedOverview, rows2026] = await Promise.all([
-    getBatchOverview({ batchYear: importedYear }),
-    prisma.offer.count({
-      where: { batch: { year: importedYear }, deletedAt: null, verification: { not: "REMOVED" } },
-    }),
+  const year = 2026;
+  const [historicalOverview, submittedCount] = await Promise.all([
+    getBatchOverview({ batchYear: year }),
+    prisma.offer.count({ where: { batch: { year }, deletedAt: null, verification: { not: "REMOVED" } } }),
   ]);
-  check(
-    `an imported season reads through the same path as a live one (${importedYear})`,
-    importedOverview === null || importedOverview.reportCount === rows2026,
-    `${importedYear}: overview reports ${importedOverview?.reportCount ?? "—"} from ${rows2026} offer rows`,
-  );
+  check("historical and student submissions use the same aggregate", historicalOverview?.reportCount === submittedCount,
+    `${year}: ${historicalOverview?.reportCount} outcomes from ${submittedCount} Offer rows`);
 
   // --- what the pages will show --------------------------------------------
   console.log("\n  Overview as the page will render it:");

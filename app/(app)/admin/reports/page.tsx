@@ -1,3 +1,5 @@
+import { singleParams, type SearchParams } from "@/lib/query-params";
+import { formatLpa } from "@/lib/format";
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
@@ -7,7 +9,6 @@ import {
   Panel,
   StatusBadge,
   Tag,
-  formatLpa,
 } from "@/components/ui/primitives";
 import { ModerationForm } from "./moderation-form";
 
@@ -27,10 +28,10 @@ const REASON: Record<string, string> = {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | undefined>>;
+  searchParams: Promise<SearchParams>;
 }) {
   await requireRole("ADMIN");
-  const params = await searchParams;
+  const params = singleParams(await searchParams);
   const showResolved = params["show"] === "resolved";
 
   const reports = await prisma.report.findMany({
