@@ -150,8 +150,7 @@ async function buildCsv(
           nature: offer.nature,
           tier: offer.tierKey ?? "",
           branch: offer.branch?.code ?? "",
-          // Banded, never exact: an export is the most likely way a CGPA would
-          // escape the privacy rules the app enforces on screen.
+          cgpa: offer.cgpa ?? "",
           cgpa_band: offer.cgpaBand ?? "",
           ctc_lpa: offer.compensation?.ctcLpa ?? "",
           base_lpa: offer.compensation?.baseLpa ?? "",

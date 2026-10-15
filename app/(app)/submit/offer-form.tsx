@@ -6,7 +6,6 @@ import { Plus, X } from "lucide-react";
 import { submitOffer, type SubmitState } from "./actions";
 import { rowCount, useDraft, type DraftFields } from "./use-draft";
 import {
-  Checkbox,
   FormSection,
   Select,
   TextArea,
@@ -396,7 +395,7 @@ export function OfferForm({
 
       <FormSection
         title="You, at the time"
-        description="Shown in bands, never exactly, and never next to your name unless you choose to be named. This is what makes 'does CGPA actually matter' answerable."
+        description="Your CGPA and placement details can be shown, including for a single outcome. Your name and SRN stay hidden from placement views."
         columns={3}
       >
         <TextInput
@@ -588,11 +587,7 @@ export function OfferForm({
       </FormSection>
 
       <FormSection title="Your name" columns={1}>
-        <Checkbox
-          name="showName"
-          label="Show my name on this offer"
-          hint="Off by default. Left off, this appears as an anonymous offer — your branch and a CGPA band are shown, never your name or SRN. You can change this later."
-        />
+        <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>Offers are anonymous. Your name and SRN are never shown alongside your placement details.</p>
       </FormSection>
 
       {exhausted.length > 0 ? (

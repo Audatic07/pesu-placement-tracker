@@ -1,12 +1,12 @@
 import { singleParams, type SearchParams } from "@/lib/query-params";
-import { formatLpa, formatCompactInr, formatDate } from "@/lib/format";
+import { formatLpa, formatCompactInr, formatDate, formatComponentAmount } from "@/lib/format";
+import { historicalSourceQuote } from "@/lib/comp/source-quote";
 import { WORK_MODE_LABELS, COMPONENT_LABELS, ROUND_LABELS } from "@/lib/offers/labels";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Flag, ShieldCheck, TriangleAlert } from "lucide-react";
 import { requireStudent, roleAtLeast } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
-import { canShowName } from "@/lib/privacy/gate";
 import {
   PageHeader,
   Panel,
@@ -46,7 +46,6 @@ export default async function OfferPage({
       company: { select: { name: true, slug: true } },
       batch: { select: { year: true } },
       branch: { select: { code: true, name: true } },
-      student: { select: { id: true, name: true } },
       compensation: { include: { components: true } },
       rounds: { orderBy: { sequence: "asc" } },
       reports: { select: { id: true, status: true } },
@@ -56,19 +55,12 @@ export default async function OfferPage({
   if (!offer || (offer.deletedAt !== null && !roleAtLeast(viewer.role, "ADMIN"))) notFound();
 
   const isOwner = offer.studentId === viewer.id;
-  const isAdmin = roleAtLeast(viewer.role, "ADMIN");
-  const showName = canShowName(offer);
 
   const verification = VERIFICATION[offer.verification] ?? VERIFICATION["UNVERIFIED"]!;
   const pkg = offer.compensation;
+  const quote = historicalSourceQuote(offer);
 
-  // Exact CGPA is the owner's and the admins' to see; everyone else gets a band.
-  const cgpaDisplay =
-    isOwner || isAdmin
-      ? offer.cgpa
-        ? Number(offer.cgpa).toFixed(2)
-        : "—"
-      : (offer.cgpaBand ?? "—");
+  const cgpaDisplay = offer.cgpa === null ? "—" : Number(offer.cgpa).toFixed(2);
 
   const cashComponents = pkg?.components.filter((component) => component.isCash) ?? [];
   const nonCashComponents = pkg?.components.filter((component) => !component.isCash) ?? [];
@@ -79,7 +71,7 @@ export default async function OfferPage({
         title={`${offer.company.name} — ${offer.roleTitle}`}
         description={
           <>
-            {offer.source === "OFFICIAL_IMPORT" ? "Historical headcount record" : showName && offer.student ? offer.student.name : "Reported anonymously"}
+            {offer.source === "OFFICIAL_IMPORT" ? "Historical headcount record" : "Reported anonymously"}
             {offer.branch ? ` · ${offer.branch.code}` : ""} · Batch of {offer.batch.year}
             {isOwner ? " · This is yours" : ""}
           </>
@@ -126,7 +118,7 @@ export default async function OfferPage({
         ) : null}
 
         <StatGrid>
-          <Stat label="CTC" value={formatLpa(pkg?.ctcLpa ? Number(pkg.ctcLpa) : null)} />
+          <Stat label="Awarded CTC" value={formatLpa(pkg?.ctcLpa == null ? null : Number(pkg.ctcLpa))} hint={offer.nature === "INTERNSHIP_ONLY" ? "Internship outcome; FTE conversion is not established" : undefined} />
           <Stat
             label="Cash, year 1"
             value={formatLpa(pkg?.firstYearCashLpa ? Number(pkg.firstYearCashLpa) : null)}
@@ -147,8 +139,18 @@ export default async function OfferPage({
               pkg?.stipendPerMonthInr ? `${formatCompactInr(Number(pkg.stipendPerMonthInr))}/mo` : "—"
             }
           />
-          <Stat label="CGPA" value={cgpaDisplay} hint={isOwner || isAdmin ? "Only you and admins see the exact figure" : "Banded"} />
+          <Stat label="CGPA" value={cgpaDisplay} />
         </StatGrid>
+
+        {quote && (pkg?.ctcLpa == null || pkg?.baseLpa == null) ? (
+          <Panel title="Source package quote" description={offer.nature === "INTERNSHIP_ONLY" ? "Prospective FTE compensation. Conversion is not established; these figures are excluded from awarded CTC statistics." : "As quoted in the source. These figures do not replace unknown or conflicting awarded compensation."}>
+            <dl className="grid gap-3 text-[13px] sm:grid-cols-2">
+              <Term label="Quoted base">{formatLpa(quote.baseLpa)}</Term>
+              <Term label="Quoted CTC">{formatLpa(quote.ctcLpa)}</Term>
+            </dl>
+            {pkg?.rawNote ? <p className="mt-4 whitespace-pre-wrap text-[13px] leading-relaxed">{pkg.rawNote}</p> : null}
+          </Panel>
+        ) : null}
 
         {pkg && (cashComponents.length > 0 || nonCashComponents.length > 0) ? (
           <Panel
@@ -162,6 +164,7 @@ export default async function OfferPage({
                   <tr key={component.id} style={{ borderBottom: "1px solid var(--line)" }}>
                     <td className="h-[34px] px-4">
                       {COMPONENT_LABELS[component.kind] ?? component.kind}
+                      {component.label ? <span className="ml-2">{component.label}</span> : null}
                       {component.isOneTime ? (
                         <span className="ml-2">
                           <Tag>one-time</Tag>
@@ -172,11 +175,11 @@ export default async function OfferPage({
                           <Tag>not cash</Tag>
                         </span>
                       ) : null}
+                      {component.vestingYears != null ? <span className="ml-2">Vests over {Number(component.vestingYears)} years</span> : null}
+                      {component.note ? <p className="my-1 text-[12px]" style={{ color: "var(--text-secondary)" }}>{component.note}</p> : null}
                     </td>
                     <td className="tnum px-4 text-right">
-                      {component.currency === "USD"
-                        ? `$${Number(component.amount).toLocaleString("en-IN")}`
-                        : formatLpa(Number(component.amount))}
+                      {formatComponentAmount({ amount: Number(component.amount), currency: component.currency, isLpa: component.isLpa })}
                     </td>
                   </tr>
                 ))}

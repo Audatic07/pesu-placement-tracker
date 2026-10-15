@@ -86,6 +86,10 @@ describe("histogram", () => {
 });
 
 describe("privacy gate", () => {
+  it("shows a single record with the current name-only privacy policy", () => {
+    expect(gate(1, () => 42)).toEqual({ suppressed: false, value: 42, cohortSize: 1 });
+    expect(gate(0, () => { throw new Error("Empty input must not be computed"); }).suppressed).toBe(true);
+  });
   it("suppresses a cohort below the minimum", () => {
     const result = gate(3, () => 42, 5);
     expect(result.suppressed).toBe(true);
@@ -146,8 +150,8 @@ describe("cgpaBand", () => {
 describe("canShowName", () => {
   const base = { nameVisibility: "NAMED", verification: "ADMIN_VERIFIED", deletedAt: null };
 
-  it("shows a name only on an explicit opt-in", () => {
-    expect(canShowName(base)).toBe(true);
+  it("hides recipient names even on legacy named offers", () => {
+    expect(canShowName(base)).toBe(false);
     expect(canShowName({ ...base, nameVisibility: "ANONYMOUS" })).toBe(false);
   });
 

@@ -122,12 +122,21 @@ export default async function CompaniesPage({
     },
     {
       key: "ctc",
-      header: "CTC",
+      header: "Awarded CTC",
       sortKey: "ctc",
       numeric: true,
       width: "96px",
       render: (row) =>
-        row.highestCtcLpa === null ? <Muted>—</Muted> : formatLpa(row.highestCtcLpa, false),
+        row.highestCtcLpa === null ? <Muted>{row.ctcWithheld ? "Withheld" : "Not reported"}</Muted> : formatLpa(row.highestCtcLpa, false),
+    },
+    {
+      key: "quoted-ctc",
+      header: "Source CTC quote",
+      numeric: true,
+      width: "120px",
+      render: (row) => row.highestQuotedCtcLpa === null ? <Muted>{row.quoteWithheld ? "Withheld" : "—"}</Muted> : (
+        <span title="Advertised or prospective FTE compensation; excluded from awarded CTC statistics">{formatLpa(row.highestQuotedCtcLpa)}<span className="block text-[11px]" style={{ color: "var(--text-tertiary)" }}>Quoted only</span></span>
+      ),
     },
     {
       key: "cash",

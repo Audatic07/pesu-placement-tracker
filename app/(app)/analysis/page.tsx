@@ -179,7 +179,7 @@ export default async function AnalysisPage({
 
         <Panel
           title="Does CGPA decide who gets an offer?"
-          description="Median package by CGPA band, shown only for bands with at least five student reports. Historical records have no individual CGPA."
+          description="Median package by CGPA band, including bands with a single student report. Historical records have no individual CGPA. Recipient names stay hidden."
         >
           {cgpa.suppressed ? (
             <Withheld

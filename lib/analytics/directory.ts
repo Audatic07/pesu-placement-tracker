@@ -5,6 +5,7 @@ import { getTierConfigs } from "./config";
 import { prisma } from "@/lib/db";
 import { median } from "./stats";
 import { gate } from "@/lib/privacy/gate";
+import { historicalSourceQuote } from "@/lib/comp/source-quote";
 
 /** One submission aggregate per company/cycle; filters and facets share the same rows. */
 
@@ -52,6 +53,9 @@ export type DirectoryRow = {
   eligibleBranches: string[];
 
   highestCtcLpa: number | null;
+  highestQuotedCtcLpa: number | null;
+  ctcWithheld: boolean;
+  quoteWithheld: boolean;
   highestStipendInr: number | null;
   firstYearCashLpa: number | null;
 
@@ -83,6 +87,7 @@ type Accumulator = DirectoryRow & {
   roleFamilies: Set<RoleFamily>;
   aliases: string[];
   ctcReports: number;
+  quoteReports: number;
   stipendReports: number;
   cashReports: number;
 };
@@ -103,12 +108,16 @@ function blank(
     studentReports: 0,
     historicalReports: 0,
     ctcReports: 0,
+    quoteReports: 0,
     stipendReports: 0,
     cashReports: 0,
     roleTitles: [],
     tierKeys: [],
     eligibleBranches: [],
     highestCtcLpa: null,
+    highestQuotedCtcLpa: null,
+    ctcWithheld: false,
+    quoteWithheld: false,
     highestStipendInr: null,
     firstYearCashLpa: null,
     cgpaCutoff: null,
@@ -129,6 +138,7 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
         verification: { not: "REMOVED" },
       },
       select: {
+        id: true, studentId: true, processNotes: true,
         source: true,
         roleTitle: true,
         roleFamily: true,
@@ -149,7 +159,7 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
           },
         },
         compensation: {
-          select: { ctcLpa: true, stipendPerMonthInr: true, firstYearCashLpa: true },
+          select: { ctcLpa: true, stipendPerMonthInr: true, firstYearCashLpa: true, rawNote: true },
         },
       },
     });
@@ -194,6 +204,13 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
 
     const pkg = offer.compensation;
     if (pkg?.ctcLpa != null) row.ctcReports += 1;
+    if (pkg?.ctcLpa == null) {
+      const quote = historicalSourceQuote(offer);
+      if (quote?.ctcLpa != null) {
+        row.quoteReports += 1;
+        row.highestQuotedCtcLpa = higher(row.highestQuotedCtcLpa, quote.ctcLpa);
+      }
+    }
     if (pkg?.stipendPerMonthInr != null) row.stipendReports += 1;
     if (pkg?.firstYearCashLpa != null) row.cashReports += 1;
     row.highestCtcLpa = higher(row.highestCtcLpa, pkg?.ctcLpa != null ? Number(pkg.ctcLpa) : null);
@@ -219,8 +236,11 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
   }
 
   for (const row of rows.values()) {
+    row.ctcWithheld = row.ctcReports > 0 && gate(row.ctcReports, () => null).suppressed;
+    row.quoteWithheld = row.quoteReports > 0 && gate(row.quoteReports, () => null).suppressed;
     for (const [amount, count] of [
       ["highestCtcLpa", "ctcReports"],
+      ["highestQuotedCtcLpa", "quoteReports"],
       ["highestStipendInr", "stipendReports"],
       ["firstYearCashLpa", "cashReports"],
     ] as const) {
@@ -242,7 +262,7 @@ async function buildRows(batchYear: number): Promise<Accumulator[]> {
   return [...rows.values()];
 }
 
-const readStoredRows = cacheBatchRead("directory-v4", async (batchYear: number) =>
+const readStoredRows = cacheBatchRead("directory-v5", async (batchYear: number) =>
   (await buildRows(batchYear)).map(({ roleFamilies, date, ...row }) =>
     Object.assign({}, row, { roleFamilies: [...roleFamilies], date: date?.toISOString() ?? null }),
   ),

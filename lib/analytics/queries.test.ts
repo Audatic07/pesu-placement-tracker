@@ -45,32 +45,32 @@ describe("live aggregates", () => {
     expect(overview).toMatchObject({ reportCount: 2, accepted: 1, declined: 1, converted: 1 });
   });
 
-  it("withholds amounts even when many reports leave compensation blank", async () => {
+  it("uses known compensation even when other reports leave it blank", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 4 }, () => observation),
       ...Array.from({ length: 8 }, () => ({ ...observation, ctcLpa: null, baseLpa: null })),
     ]);
     const overview = await getBatchOverview({ batchYear: 2027 });
     expect(overview?.reportCount).toBe(12);
-    expect(overview?.ctc).toMatchObject({ count: 4, highest: null, median: null, average: null });
-    expect(overview?.ctcHistogram).toEqual([]);
+    expect(overview?.ctc).toMatchObject({ count: 4, highest: 20, median: 20, average: 20 });
+    expect(overview?.ctcHistogram.length).toBeGreaterThan(0);
   });
 
-  it("releases package figures at the configured minimum", async () => {
+  it("releases known package figures", async () => {
     vi.mocked(loadObservations).mockResolvedValue(Array.from({ length: 5 }, () => observation));
     expect((await getBatchOverview({ batchYear: 2027 }))?.ctc).toMatchObject({
       count: 5, highest: 20, median: 20, average: 20,
     });
   });
 
-  it("applies the floor independently to each recruiter", async () => {
+  it("shows known values for a recruiter with one outcome", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 5 }, () => observation),
       { ...observation, companySlug: "small-company", ctcLpa: 80 },
     ]);
     const recruiters = await getTopRecruiters(2027);
     expect(recruiters.find((row) => row.companySlug === "small-company")).toMatchObject({
-      reports: 1, highestCtc: null, medianCtc: null,
+      reports: 1, highestCtc: 80, medianCtc: 80,
     });
   });
 
@@ -96,18 +96,43 @@ describe("live aggregates", () => {
     expect(await getCompanyTrend("company-id")).toEqual([{
       key: "2026::FULL_TIME", batchYear: 2026, cycle: "FULL_TIME", offers: 5,
       highestCtc: 20, medianCtc: 20, gpaCutoff: "7.00",
+      ctcRecords: 5, ctcWithheld: false, highestQuotedCtc: null,
+      quotedCtcRecords: 0, quoteWithheld: false, highestStipend: null,
     }]);
   });
 
-  it("withholds inflation analysis when only one offer supplies cash pay", async () => {
+  it("recovers source quotes while leaving awarded CTC statistics unknown", async () => {
+    const offer = {
+      id: `handmade-${"a".repeat(32)}`, source: "OFFICIAL_IMPORT", studentId: null,
+      processNotes: "Source: source.xlsx · Internship · row 6.",
+      cycle: "SIX_MONTH_INTERNSHIP", announcedCgpaCutoff: null, batch: { year: 2027 },
+      compensation: { ctcLpa: null, stipendPerMonthInr: 105000, rawNote: "Source package: monthly internship stipend 105000 INR; stated base 21 LPA; headline CTC 87 LPA.\nPerformance-based FTE." },
+    };
+    database.offers.mockResolvedValue(Array.from({ length: 16 }, () => offer));
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({
+      highestCtc: null, medianCtc: null, ctcRecords: 0, ctcWithheld: false,
+      highestQuotedCtc: 87, quotedCtcRecords: 16, quoteWithheld: false, highestStipend: 105000,
+    });
+    database.offers.mockResolvedValue([offer]);
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({
+      highestCtc: null, highestQuotedCtc: 87, quoteWithheld: false, highestStipend: 105000,
+    });
+  });
+
+  it("shows a single awarded CTC rather than treating it as missing", async () => {
+    database.offers.mockResolvedValue([{ cycle: "FULL_TIME", announcedCgpaCutoff: null, batch: { year: 2027 }, compensation: { ctcLpa: 40 } }]);
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({ highestCtc: 40, ctcRecords: 1, ctcWithheld: false });
+  });
+
+  it("shows inflation analysis when one offer supplies cash pay", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 5 }, () => ({ ...observation, firstYearCashLpa: null, nonCashLpa: 0 })),
       { ...observation, firstYearCashLpa: 10, nonCashLpa: 0 },
     ]);
-    expect(await getCtcInflationLeaders(2027)).toEqual([]);
+    expect(await getCtcInflationLeaders(2027)).toMatchObject([{ firstYearCashLpa: 10, ratio: 2 }]);
   });
 
-  it("combines season outcomes and gates each amount by its known values", async () => {
+  it("combines season outcomes using each amount's known values", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 4 }, () => observation),
       { ...observation, source: "OFFICIAL_IMPORT", ctcLpa: null, date: new Date("2026-08-01") },
@@ -116,7 +141,7 @@ describe("live aggregates", () => {
     expect(await getSeasonEntries(2027)).toEqual([{
       id: "test-company::FULL_TIME", date: Date.parse("2026-08-01"),
       company: { name: "Northwind Labs", slug: "northwind-labs" }, reports: 6,
-      roleTitles: ["SDE 1"], tierKeys: ["TIER_1"], highestCtc: null, highestStipend: null,
+      roleTitles: ["SDE 1"], tierKeys: ["TIER_1"], highestCtc: 20, highestStipend: 50000,
     }]);
   });
 });

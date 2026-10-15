@@ -182,9 +182,8 @@ export default async function OverviewPage({
             )}
             <div className="px-4 pb-3">
               <SourceNote>
-                &ldquo;Lowest in&rdquo; is the lowest CGPA that still got an offer, and appears only
-                once at least five people have reported one — below that it is a person, not a
-                pattern.
+                &ldquo;Lowest in&rdquo; is the lowest reported CGPA that got an offer, including
+                when only one outcome is recorded. Recipient names stay hidden.
               </SourceNote>
             </div>
           </Panel>
