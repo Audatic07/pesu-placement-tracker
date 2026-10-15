@@ -154,7 +154,7 @@ export const OfferInput = z.object({
   preparationResources: z.string().max(4000).optional(),
   difficultyRating: z.coerce.number().int().min(1).max(5).optional(),
 
-  /** Default anonymous. Showing a name is an explicit, deliberate act. */
+  /** Legacy input accepted for older clients; submission always stays anonymous. */
   showName: z.boolean().default(false),
 
   rounds: z.array(RoundInput).max(12).default([]),

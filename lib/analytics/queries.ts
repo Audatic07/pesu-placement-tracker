@@ -13,7 +13,7 @@ import {
 import { histogram, median, packageStats, type Bucket, type PackageStats } from "./stats";
 import { historicalSourceQuote } from "@/lib/comp/source-quote";
 
-/** Offer aggregates include labelled historical records. Personal statistics respect the privacy floor. */
+/** Historical and student figures share analytics; recipient names are excluded. */
 
 export type AnalyticsFilters = ObservationFilters;
 

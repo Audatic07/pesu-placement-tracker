@@ -24,11 +24,10 @@ analytics as new student submissions. Source notes preserve provenance; unknown
 identity, acceptance, dates and compensation stay unknown. Counts represent
 offers, since the sheets cannot establish distinct students across employers.
 
-**Anonymity is structural, not a checkbox.** Offers are anonymous by default,
-exact CGPA is banded in public views, and no statistic is shown for a cohort
-below five records — including maximums, which are one person's package wearing
-a hat. The gate is enforced by the type system: a suppressible statistic cannot
-be read without handling the suppressed case.
+**Recipient names stay private.** Placement views never show recipient names or
+SRNs, including on older offers that opted into naming. Recorded compensation
+and CGPA are visible even for a single outcome. Empty or undisclosed values stay
+unknown. Source package quotes remain separate from awarded compensation.
 
 **Everything is batch-scoped configuration.** Tier boundaries, submission
 quotas, tax slabs. The 2026 sheet's own guidelines already note a tier that
@@ -146,8 +145,8 @@ host-configured `SUPER_ADMIN_SRN`, then manage other admins in the console.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: this handles real
-student data, so privacy failures are the highest-severity defect class here,
-and every statistic must pass through the privacy gate rather than around it.
+student data, so recipient names, credentials and sessions must remain private.
+Known placement figures are shown for every nonempty cohort.
 
 Security issues: see [SECURITY.md](SECURITY.md).
 

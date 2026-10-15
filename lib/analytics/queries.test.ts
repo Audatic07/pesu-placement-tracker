@@ -45,32 +45,32 @@ describe("live aggregates", () => {
     expect(overview).toMatchObject({ reportCount: 2, accepted: 1, declined: 1, converted: 1 });
   });
 
-  it("withholds amounts even when many reports leave compensation blank", async () => {
+  it("uses known compensation even when other reports leave it blank", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 4 }, () => observation),
       ...Array.from({ length: 8 }, () => ({ ...observation, ctcLpa: null, baseLpa: null })),
     ]);
     const overview = await getBatchOverview({ batchYear: 2027 });
     expect(overview?.reportCount).toBe(12);
-    expect(overview?.ctc).toMatchObject({ count: 4, highest: null, median: null, average: null });
-    expect(overview?.ctcHistogram).toEqual([]);
+    expect(overview?.ctc).toMatchObject({ count: 4, highest: 20, median: 20, average: 20 });
+    expect(overview?.ctcHistogram.length).toBeGreaterThan(0);
   });
 
-  it("releases package figures at the configured minimum", async () => {
+  it("releases known package figures", async () => {
     vi.mocked(loadObservations).mockResolvedValue(Array.from({ length: 5 }, () => observation));
     expect((await getBatchOverview({ batchYear: 2027 }))?.ctc).toMatchObject({
       count: 5, highest: 20, median: 20, average: 20,
     });
   });
 
-  it("applies the floor independently to each recruiter", async () => {
+  it("shows known values for a recruiter with one outcome", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 5 }, () => observation),
       { ...observation, companySlug: "small-company", ctcLpa: 80 },
     ]);
     const recruiters = await getTopRecruiters(2027);
     expect(recruiters.find((row) => row.companySlug === "small-company")).toMatchObject({
-      reports: 1, highestCtc: null, medianCtc: null,
+      reports: 1, highestCtc: 80, medianCtc: 80,
     });
   });
 
@@ -115,24 +115,24 @@ describe("live aggregates", () => {
     });
     database.offers.mockResolvedValue([offer]);
     expect((await getCompanyTrend("company-id"))[0]).toMatchObject({
-      highestCtc: null, highestQuotedCtc: null, quoteWithheld: true, highestStipend: null,
+      highestCtc: null, highestQuotedCtc: 87, quoteWithheld: false, highestStipend: 105000,
     });
   });
 
-  it("distinguishes privacy-hidden awarded CTC from missing compensation", async () => {
+  it("shows a single awarded CTC rather than treating it as missing", async () => {
     database.offers.mockResolvedValue([{ cycle: "FULL_TIME", announcedCgpaCutoff: null, batch: { year: 2027 }, compensation: { ctcLpa: 40 } }]);
-    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({ highestCtc: null, ctcRecords: 1, ctcWithheld: true });
+    expect((await getCompanyTrend("company-id"))[0]).toMatchObject({ highestCtc: 40, ctcRecords: 1, ctcWithheld: false });
   });
 
-  it("withholds inflation analysis when only one offer supplies cash pay", async () => {
+  it("shows inflation analysis when one offer supplies cash pay", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 5 }, () => ({ ...observation, firstYearCashLpa: null, nonCashLpa: 0 })),
       { ...observation, firstYearCashLpa: 10, nonCashLpa: 0 },
     ]);
-    expect(await getCtcInflationLeaders(2027)).toEqual([]);
+    expect(await getCtcInflationLeaders(2027)).toMatchObject([{ firstYearCashLpa: 10, ratio: 2 }]);
   });
 
-  it("combines season outcomes and gates each amount by its known values", async () => {
+  it("combines season outcomes using each amount's known values", async () => {
     vi.mocked(loadObservations).mockResolvedValue([
       ...Array.from({ length: 4 }, () => observation),
       { ...observation, source: "OFFICIAL_IMPORT", ctcLpa: null, date: new Date("2026-08-01") },
@@ -141,7 +141,7 @@ describe("live aggregates", () => {
     expect(await getSeasonEntries(2027)).toEqual([{
       id: "test-company::FULL_TIME", date: Date.parse("2026-08-01"),
       company: { name: "Northwind Labs", slug: "northwind-labs" }, reports: 6,
-      roleTitles: ["SDE 1"], tierKeys: ["TIER_1"], highestCtc: null, highestStipend: null,
+      roleTitles: ["SDE 1"], tierKeys: ["TIER_1"], highestCtc: 20, highestStipend: 50000,
     }]);
   });
 });

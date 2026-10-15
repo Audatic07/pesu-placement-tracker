@@ -235,9 +235,7 @@ export function EmptyState({
 }
 
 /**
- * A statistic withheld by the privacy floor. Rendered as an explanation rather
- * than a blank, because "we are not showing you this, and here is why" is
- * information and an empty cell is not.
+ * Explain why a calculation has no value, including an empty set of records.
  */
 export function Withheld({ reason }: { reason: string }) {
   return (

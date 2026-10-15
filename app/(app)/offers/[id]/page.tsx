@@ -7,7 +7,6 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Flag, ShieldCheck, TriangleAlert } from "lucide-react";
 import { requireStudent, roleAtLeast } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
-import { canShowName } from "@/lib/privacy/gate";
 import {
   PageHeader,
   Panel,
@@ -47,7 +46,6 @@ export default async function OfferPage({
       company: { select: { name: true, slug: true } },
       batch: { select: { year: true } },
       branch: { select: { code: true, name: true } },
-      student: { select: { id: true, name: true } },
       compensation: { include: { components: true } },
       rounds: { orderBy: { sequence: "asc" } },
       reports: { select: { id: true, status: true } },
@@ -57,20 +55,12 @@ export default async function OfferPage({
   if (!offer || (offer.deletedAt !== null && !roleAtLeast(viewer.role, "ADMIN"))) notFound();
 
   const isOwner = offer.studentId === viewer.id;
-  const isAdmin = roleAtLeast(viewer.role, "ADMIN");
-  const showName = canShowName(offer);
 
   const verification = VERIFICATION[offer.verification] ?? VERIFICATION["UNVERIFIED"]!;
   const pkg = offer.compensation;
   const quote = historicalSourceQuote(offer);
 
-  // Exact CGPA is the owner's and the admins' to see; everyone else gets a band.
-  const cgpaDisplay =
-    isOwner || isAdmin
-      ? offer.cgpa
-        ? Number(offer.cgpa).toFixed(2)
-        : "—"
-      : (offer.cgpaBand ?? "—");
+  const cgpaDisplay = offer.cgpa === null ? "—" : Number(offer.cgpa).toFixed(2);
 
   const cashComponents = pkg?.components.filter((component) => component.isCash) ?? [];
   const nonCashComponents = pkg?.components.filter((component) => !component.isCash) ?? [];
@@ -81,7 +71,7 @@ export default async function OfferPage({
         title={`${offer.company.name} — ${offer.roleTitle}`}
         description={
           <>
-            {offer.source === "OFFICIAL_IMPORT" ? "Historical headcount record" : showName && offer.student ? offer.student.name : "Reported anonymously"}
+            {offer.source === "OFFICIAL_IMPORT" ? "Historical headcount record" : "Reported anonymously"}
             {offer.branch ? ` · ${offer.branch.code}` : ""} · Batch of {offer.batch.year}
             {isOwner ? " · This is yours" : ""}
           </>
@@ -149,7 +139,7 @@ export default async function OfferPage({
               pkg?.stipendPerMonthInr ? `${formatCompactInr(Number(pkg.stipendPerMonthInr))}/mo` : "—"
             }
           />
-          <Stat label="CGPA" value={cgpaDisplay} hint={isOwner || isAdmin ? "Only you and admins see the exact figure" : "Banded"} />
+          <Stat label="CGPA" value={cgpaDisplay} />
         </StatGrid>
 
         {quote && (pkg?.ctcLpa == null || pkg?.baseLpa == null) ? (

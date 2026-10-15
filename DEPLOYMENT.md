@@ -40,7 +40,7 @@ backups, source workbooks, credentials or real account identifiers to a fork.
 | `SUPER_ADMIN_SRN` | Recovery owner; PESU verification is required before a grant. |
 | `PRODUCTION_MIGRATIONS` | Optional `deploy`: migrate before a Vercel Production build. |
 | `PESU_AUTH_TIMEOUT_MS` | Optional, maximum 25000 ms per login attempt. |
-| `PRIVACY_MIN_COHORT_SIZE` | Keep at 5 or higher. |
+| `PRIVACY_MIN_COHORT_SIZE` | Deprecated and ignored. Every nonempty cohort is shown; recipient names stay hidden. |
 
 **Production database credentials and session secrets belong only in Production.**
 Never assign them to Preview or Development. Previews need their own database,

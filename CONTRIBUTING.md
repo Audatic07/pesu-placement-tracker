@@ -45,11 +45,10 @@ into two rows because someone typed it in lower case.
 
 ## The rules that are not negotiable
 
-**No statistic bypasses the privacy gate.** Everything aggregate goes through
-`lib/privacy/gate.ts`. `Suppressible<T>` cannot be read without handling the
-suppressed case, and that is deliberate — do not unwrap it with a cast. Minimum
-and maximum are suppressed with everything else, because a maximum is one
-person's exact package.
+**Placement views never show recipient names or SRNs.** This includes legacy
+offers marked NAMED. Known placement figures are shown even for one outcome;
+empty inputs still need an explicit no-data result. Keep recipient identity out
+of placement queries and client payloads. Account and admin identity is separate.
 
 **No password is stored, logged, or held longer than the request.** It passes
 through the server once, to pesu-auth, and is never written anywhere. Check

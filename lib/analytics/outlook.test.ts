@@ -22,6 +22,13 @@ function point(cgpa: number, ctcLpa: number, tierKey: string | null = "TIER_2"):
 }
 
 describe("computeOutlook", () => {
+  it("shows a single peer under the current policy without publishing a name", () => {
+    const result = computeOutlook(8, [], [point(8, 30)], TIERS).peers;
+    expect(result.suppressed).toBe(false);
+    if (result.suppressed) throw new Error("Expected known placement figures");
+    expect(result.value).toMatchObject({ offers: 1, medianCtc: 30 });
+    expect(result.value).not.toHaveProperty("name");
+  });
   it("splits announced bars into cleared, within reach and out of reach", () => {
     const bars = [bar("A", 7), bar("B", 8), bar("C", 8.4), bar("D", 8.5), bar("E", 9)];
 

@@ -471,9 +471,9 @@ async function verify(
     where: { batchId: batch.id, nameVisibility: "NAMED" },
   });
   check(
-    "anonymity is the default",
-    named < accepted / 2,
-    `${accepted - named} anonymous, ${named} opted in to being named`,
+    "all submitted offers remain anonymous, including legacy name opt-ins",
+    named === 0,
+    `${accepted - named} anonymous, ${named} named`,
   );
 
   const unbanded = await prisma.offer.count({

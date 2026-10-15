@@ -6,7 +6,6 @@ import { notFound } from "next/navigation";
 import { getCurrentStudent } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { getCompanyTrend } from "@/lib/analytics/queries";
-import { canShowName } from "@/lib/privacy/gate";
 import { historicalSourceQuote } from "@/lib/comp/source-quote";
 import { SummaryTable } from "@/components/data/summary-table";
 import { EmptyState, PageHeader, Panel, Stat, StatGrid } from "@/components/ui/primitives";
@@ -26,7 +25,7 @@ export default async function CompanyPage({ params, searchParams }: {
   const [student, { slug }, rawQuery] = await Promise.all([getCurrentStudent(), params, searchParams]);
   const query = singleParams(rawQuery);
   const requestedYear = positiveInteger(query.batch, 0);
-  const offerPage = positiveInteger(query.page);
+  const offerPage = Math.min(100000, positiveInteger(query.page));
   const pageSize = 25;
   const company = await prisma.company.findUnique({
     where: { slug },
@@ -44,7 +43,7 @@ export default async function CompanyPage({ params, searchParams }: {
         select: {
           id: true, roleTitle: true, cycle: true, nameVisibility: true, verification: true,
           nature: true, studentId: true, processNotes: true,
-          deletedAt: true, source: true, student: { select: { name: true } },
+          deletedAt: true, source: true,
           batch: { select: { year: true } }, compensation: { select: { ctcLpa: true, rawNote: true, stipendPerMonthInr: true } },
         },
         orderBy: [{ batch: { year: "desc" } }, { createdAt: "desc" }, { id: "asc" }],
@@ -91,7 +90,7 @@ export default async function CompanyPage({ params, searchParams }: {
           <button type="submit" className="rounded border border-[var(--line)] px-3 py-2">Apply</button>
         </form>
         {trend.length ? (
-          <Panel title={requestedYear ? `Batch of ${requestedYear}` : "Year on year"} description="Counts are offer outcomes. Source quotes are advertised or prospective FTE figures and are excluded from awarded CTC statistics. Withheld means too few disclosed values to meet the privacy minimum; not reported means no awarded CTC is recorded." padded={false}>
+          <Panel title={requestedYear ? `Batch of ${requestedYear}` : "Year on year"} description="Counts are offer outcomes. Source quotes are advertised or prospective FTE figures and are excluded from awarded CTC statistics. Recorded figures are shown even for a single outcome; not reported means no awarded CTC is recorded. Recipient names stay hidden." padded={false}>
             <SummaryTable head={["Batch", "Cycle", "Offers", "Highest awarded CTC", "Median awarded CTC", "Source CTC quote (highest)", "Stipend / month", "CGPA bar"]}
               rows={[...selectedTrend].reverse().map((row) => ({ key: row.key, cells: [
                 String(row.batchYear), CYCLE_LABELS[row.cycle], formatCount(row.offers),
@@ -114,7 +113,7 @@ export default async function CompanyPage({ params, searchParams }: {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium">{offer.roleTitle}</span>
                       <span className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-                        {canShowName(offer) && offer.student ? offer.student.name : "Anonymous"}
+                        Anonymous
                         {` · ${CYCLE_LABELS[offer.cycle]}`}
                       </span>
                     </span>

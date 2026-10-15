@@ -49,18 +49,20 @@ describe("company directory", () => {
     expect((await queryDirectory({ batchYear: 2027 })).rows[0]).toMatchObject({ highestCtcLpa: null, highestQuotedCtcLpa: 87, ctcWithheld: false });
     expect((await queryDirectory({ batchYear: 2027, minCtcLpa: 80 })).rows).toEqual([]);
     database.offers.mockResolvedValue([historical]);
-    expect((await queryDirectory({ batchYear: 2027 })).rows[0]).toMatchObject({ highestQuotedCtcLpa: null, quoteWithheld: true });
+    expect((await queryDirectory({ batchYear: 2027 })).rows[0]).toMatchObject({ highestQuotedCtcLpa: 87, quoteWithheld: false });
   });
-  it("withholds live amounts until enough students state that amount", async () => {
+  it("shows every recorded amount regardless of cohort size", async () => {
     database.offers.mockResolvedValue([
       ...Array.from({ length: 4 }, () => offer(1)), offer(1, null), offer(1, null),
     ]);
     const result = await queryDirectory({ batchYear: 2027 });
     expect(result.rows[0]).toMatchObject({
-      reports: 6, highestCtcLpa: null, firstYearCashLpa: null,
+      reports: 6, highestCtcLpa: 20, firstYearCashLpa: 20,
     });
 
     database.offers.mockResolvedValue(Array.from({ length: 5 }, () => offer(1)));
+    expect((await queryDirectory({ batchYear: 2027 })).rows[0]?.highestCtcLpa).toBe(20);
+    database.offers.mockResolvedValue([offer(1)]);
     expect((await queryDirectory({ batchYear: 2027 })).rows[0]?.highestCtcLpa).toBe(20);
   });
 

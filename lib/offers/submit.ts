@@ -211,7 +211,7 @@ export async function createOffer(
         processNotes: values.processNotes ?? null,
         preparationResources: values.preparationResources ?? null,
         difficultyRating: values.difficultyRating ?? null,
-        nameVisibility: values.showName ? "NAMED" : "ANONYMOUS",
+        nameVisibility: "ANONYMOUS",
         source: "SELF_REPORTED",
         verification: "UNVERIFIED",
         isOutlierFlagged: outlierNote !== null,

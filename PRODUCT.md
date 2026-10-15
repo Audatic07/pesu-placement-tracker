@@ -50,9 +50,9 @@ there.
 - **One submission model.** Historical outcomes and student submissions share
   batch totals, distributions, company trends and the timeline. Source labels
   explain provenance without separating historical data from analysis.
-- **Anonymity is structural.** Offers are anonymous by default, exact CGPA is
-  banded in public views, and no statistic is shown for a cohort below five
-  records — including maximums, which are one person's package wearing a hat.
+- **Recipient names stay private.** Placement views hide names and SRNs,
+  including legacy naming opt-ins. Recorded placement figures and exact CGPA
+  are available even for a single outcome; unknown values remain unknown.
 - **Everything is batch-scoped configuration.** Tier boundaries, submission
   quotas, tax slabs. The 2026 sheet's own guidelines already note a tier that
   applied "to 2025 batch only".

@@ -30,10 +30,12 @@ dates and arbitrary prose. Original notes and canonical compensation remain
 unchanged. New imports with this same source-summary format work automatically;
 ordinary student and admin submissions are not reinterpreted.
 
-The company directory and trend apply the privacy minimum separately to known
-awarded CTC, source quotes and stipends. “Withheld” means recorded values exist
-but their count is below the minimum. “Not reported” means no awarded CTC is
-recorded for the group. Unknown values stay unknown. Authenticated offer detail
+The current owner-directed policy shows known awarded CTC, source quotes and
+stipends for every nonempty cohort, including a single outcome. The old
+PRIVACY_MIN_COHORT_SIZE setting is ignored. “Not reported” means no awarded CTC is
+recorded for the group. Recipient names and SRNs stay hidden, including on old
+offers marked NAMED; new submissions always remain anonymous. Unknown values
+stay unknown. Authenticated offer detail
 shows the quoted base/CTC with the original explanation, including performance
 conditions or conflicts.
 
@@ -53,7 +55,7 @@ restored into a new, migrated localhost database. Queries confirmed the company
 trend and directory recover the source quote independently from awarded CTC.
 All 7,211 compensation records retained their original CTC, base, stipend and
 notes. Unit tests cover source provenance, unknown/ambiguous amounts,
-small-cohort suppression, CTC filtering and absolute/annual monetary units.
+single-outcome visibility, name anonymity, CTC filtering and absolute/annual monetary units.
 
 This change needs no migration, imputation or overwrite of production records.
 The normalization is applied when the live app reads existing source notes.
